@@ -1,0 +1,3 @@
+# Drop your style reference image here (e.g., sample.jpeg)
+# This image defines the artistic style for Gemini image generation.
+# Set GEMINI_STYLE_REFERENCE_IMAGE in .env (see README below)

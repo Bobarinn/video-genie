@@ -42,16 +42,15 @@ temp/
 *.log
 logs/
 
-# Generated assets (local development)
-assets/
+# Generated assets (local development - but keep assets/ for music and style-reference)
 uploads/
 
 # Local plan files
 plan*.json
 *.json.local
 
-# Compiled binary
-api
+# Compiled binary (in root directory only)
+/api
 
 # Claude artifacts
 .claude/
