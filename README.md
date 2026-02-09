@@ -371,3 +371,6 @@ Pipeline A: Image (50s) → Upload (5s) → xAI Video (60-120s)    ──┐
 Pipeline B: Audio (2s) → Upload (1s) → Whisper (3s)            ──┘
 Total wall time: ~120-175s per clip (audio pipeline runs "for free" during image gen)# ai-video-genie
 # ai-video-genie
+
+
+ggg
