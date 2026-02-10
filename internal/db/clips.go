@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/bobarin/faceless/internal/models"
+	"github.com/bobarin/episod/internal/models"
 	"github.com/google/uuid"
 )
 

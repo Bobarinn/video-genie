@@ -4,7 +4,7 @@
 
 set -e  # Exit on any error
 
-echo "🚀 Faceless Video Generator - Deployment Script"
+echo "🚀 Episod - Deployment Script"
 echo "================================================"
 
 # Check if .env file exists

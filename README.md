@@ -1,4 +1,4 @@
-# Faceless Video Generator
+# Episod
 
 A Go-based backend service for generating 90-120 second faceless short-form videos using AI. The system generates video plans, creates narration with text-to-speech, generates styled images, and renders complete videos ready for social media.
 
@@ -63,7 +63,7 @@ The system is split into two main components:
 
 ```bash
 git clone <repository-url>
-cd faceless
+cd episod
 cp .env.example .env
 # Edit .env with your API keys
 ```
@@ -180,7 +180,7 @@ All configuration is via environment variables (see `.env.example`):
 | `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 | `SUPABASE_URL` | Supabase project URL | - |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key | - |
-| `SUPABASE_STORAGE_BUCKET` | Storage bucket name | `faceless-videos` |
+| `SUPABASE_STORAGE_BUCKET` | Storage bucket name | `files` |
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `CARTESIA_API_KEY` | Cartesia API key | - |
 | `CARTESIA_API_URL` | Cartesia API endpoint | `https://api.cartesia.ai` |
@@ -225,7 +225,7 @@ Example preset structure:
 ### Project Structure
 
 ```
-faceless/
+episod/
 ├── cmd/
 │   └── api/              # Main application entry point
 ├── internal/
@@ -369,8 +369,4 @@ curl -X POST http://localhost:8080/v1/projects \
 Pipeline A: Image (50s) → Upload (5s) → xAI Video (60-120s)    ──┐
                                                                  ├→ Render
 Pipeline B: Audio (2s) → Upload (1s) → Whisper (3s)            ──┘
-Total wall time: ~120-175s per clip (audio pipeline runs "for free" during image gen)# ai-video-genie
-# ai-video-genie
-
-
-ggg
+Total wall time: ~120-175s per clip (audio pipeline runs "for free" during image gen)

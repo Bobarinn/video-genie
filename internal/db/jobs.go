@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bobarin/faceless/internal/models"
+	"github.com/bobarin/episod/internal/models"
 	"github.com/google/uuid"
 )
 

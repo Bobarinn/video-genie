@@ -86,9 +86,9 @@
           "image_prompt": "A futuristic AI brain...",
           "created_at": "2026-02-08T00:41:42.123Z"
         },
-        "audio_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/...",
-        "image_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/...",
-        "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/..."
+        "audio_url": "https://your-project.supabase.co/storage/v1/object/public/files/...",
+        "image_url": "https://your-project.supabase.co/storage/v1/object/public/files/...",
+        "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/files/..."
       }
     ],
     "graphics_preset": {
@@ -96,7 +96,7 @@
       "name": "Luminous Regal",
       "style_json": {...}
     },
-    "final_video_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/.../final.mp4"
+    "final_video_url": "https://your-project.supabase.co/storage/v1/object/public/files/.../final.mp4"
   }
 
   ---
@@ -176,9 +176,9 @@
       "created_at": "2026-02-08T00:41:42.123Z",
       "updated_at": "2026-02-08T00:42:10.456Z"
     },
-    "audio_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/.../clip_0_audio.mp3",
-    "image_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/.../clip_0_image.png",
-    "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/.../clip_713e1e69-0e36-4eea-a684-76b04f2a5dd4.mp4"
+    "audio_url": "https://your-project.supabase.co/storage/v1/object/public/files/.../clip_0_audio.mp3",
+    "image_url": "https://your-project.supabase.co/storage/v1/object/public/files/.../clip_0_image.png",
+    "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/files/.../clip_713e1e69-0e36-4eea-a684-76b04f2a5dd4.mp4"
   }
 
   ---

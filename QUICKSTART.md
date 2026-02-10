@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get the Faceless Video Generator running in under 5 minutes.
+Get the Episod running in under 5 minutes.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ Get the Faceless Video Generator running in under 5 minutes.
 ### 1. Clone and Configure
 
 ```bash
-cd faceless
+cd episod
 cp .env.example .env
 ```
 
@@ -28,7 +28,7 @@ CARTESIA_API_KEY=...
 GEMINI_API_KEY=...
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=eyJ...
-SUPABASE_STORAGE_BUCKET=faceless-videos
+SUPABASE_STORAGE_BUCKET=files
 
 # Optional - Set a specific Cartesia voice
 # CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091
@@ -40,7 +40,7 @@ SUPABASE_STORAGE_BUCKET=faceless-videos
 
 1. Go to your Supabase project dashboard
 2. Navigate to Storage
-3. Create a new bucket named `faceless-videos`
+3. Create a new bucket named `files`
 4. Make it public (or use signed URLs)
 
 ### 3. Start Services

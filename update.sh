@@ -1,11 +1,11 @@
 #!/bin/bash
-# Update script for video-genie deployment
+# Update script for Episod deployment
 # Run this on your server after pushing changes to GitHub
 
 set -e
 
-echo "🔄 Updating video-genie..."
-cd ~/apps/video-genie
+echo "🔄 Updating Episod..."
+cd ~/apps/episod
 
 echo "📥 Pulling latest changes from GitHub..."
 git pull origin main

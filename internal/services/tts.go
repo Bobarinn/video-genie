@@ -20,5 +20,6 @@ type TTSService interface {
 	// GenerateSpeech converts text to audio using the provider's default settings.
 	// voiceStyle is a human-readable description of the desired delivery style
 	// (e.g., "slow, mysterious, and low-pitched"). The provider may or may not use it.
-	GenerateSpeech(ctx context.Context, text, voiceStyle string) (*TTSResponse, error)
+	// voiceID is an optional per-request voice override. Pass "" to use the service default.
+	GenerateSpeech(ctx context.Context, text, voiceStyle, voiceID string) (*TTSResponse, error)
 }

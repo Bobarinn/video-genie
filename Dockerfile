@@ -22,8 +22,13 @@ FROM alpine:latest
 # Install runtime dependencies (FFmpeg + fonts for subtitle rendering)
 # font-noto provides "Noto Sans" — a clean, modern sans-serif font used for
 # TikTok-style ASS subtitles burned into the video by FFmpeg's ass filter.
+# font-noto-cjk covers Chinese/Japanese/Korean characters for multi-language support.
+# font-noto-emoji covers emoji rendering in subtitles.
 # fontconfig is needed by FFmpeg/libass to discover installed fonts.
-RUN apk add --no-cache ffmpeg ca-certificates font-noto fontconfig \
+# If Noto Sans is missing, libass falls back to the default fontconfig match
+# (typically DejaVu Sans on Alpine), so subtitles never break — just look different.
+RUN apk add --no-cache ffmpeg ca-certificates \
+    font-noto font-noto-cjk font-noto-emoji fontconfig \
     && fc-cache -f
 
 WORKDIR /app
@@ -38,7 +43,7 @@ COPY --from=builder /app/assets/style-reference /app/assets/style-reference
 COPY --from=builder /app/assets/music /app/assets/music
 
 # Create temp directory for FFmpeg operations
-RUN mkdir -p /tmp/faceless && chmod 777 /tmp/faceless
+RUN mkdir -p /tmp/episod && chmod 777 /tmp/episod
 
 # Expose API port
 EXPOSE 8080

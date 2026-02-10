@@ -25,23 +25,43 @@ const (
 	wordsPerChunk = 4
 
 	// ASS font configuration — must match a font installed in the Docker container.
-	// Noto Sans is clean, modern, and supports many languages.
+	// Noto Sans is installed via Alpine's font-noto package. If unavailable, libass
+	// falls back to the default fontconfig match (typically DejaVu Sans on Alpine).
+	// We also install fontconfig and run fc-cache in the Dockerfile to ensure discovery.
 	subtitleFontName = "Noto Sans"
-	subtitleFontSize = 124 // Scaled for 4K (3840-height canvas)
 
 	// ASS colors are in &HAABBGGRR format (hex, note: BGR not RGB)
 	assColorWhite     = "&H00FFFFFF" // pure white
 	assColorBlack     = "&H00000000" // pure black (for outline)
 	assColorPurple    = "&H00CC3299" // #9932CC in BGR — rich purple for highlight
 	assColorSemiBlack = "&H80000000" // 50% transparent black (for shadow)
-
-	// Style parameters — scaled for 4K
-	outlineNormal    = 6  // Black outline thickness for non-highlighted words
-	outlineHighlight = 16 // Purple border thickness for highlighted word (creates pill effect)
-
-	// Positioning — MarginV controls distance from bottom on a 3840-height canvas
-	subtitleMarginV = 440
 )
+
+// SubtitleParams holds resolution-aware subtitle styling parameters.
+type SubtitleParams struct {
+	PlayResX         int
+	PlayResY         int
+	FontSize         int
+	OutlineNormal    int
+	OutlineHighlight int
+	MarginV          int
+}
+
+// SubtitleParamsForResolution returns font sizes and margins scaled to the render resolution.
+func SubtitleParamsForResolution(res RenderResolution) SubtitleParams {
+	if res.Width >= 2160 {
+		// 4K: 2160x3840
+		return SubtitleParams{
+			PlayResX: 2160, PlayResY: 3840,
+			FontSize: 124, OutlineNormal: 6, OutlineHighlight: 16, MarginV: 440,
+		}
+	}
+	// 1080p: 1080x1920 (default)
+	return SubtitleParams{
+		PlayResX: 1080, PlayResY: 1920,
+		FontSize: 62, OutlineNormal: 3, OutlineHighlight: 8, MarginV: 220,
+	}
+}
 
 // GenerateASSSubtitles creates a TikTok-style ASS subtitle file from word timestamps.
 //
@@ -49,10 +69,11 @@ const (
 //   - words: word-level timestamps from Whisper transcription
 //   - outputPath: path to write the .ass file
 //   - silenceOffsetSec: time offset to add to all timestamps (e.g., 0.5 for 500ms prepended silence)
+//   - params: resolution-aware subtitle styling (font size, margins, etc.)
 //
 // The generated subtitles show words in chunks of ~4, with the active word
 // highlighted in purple. All text is bold, uppercase, centered at the bottom.
-func GenerateASSSubtitles(words []WordTimestamp, outputPath string, silenceOffsetSec float64) error {
+func GenerateASSSubtitles(words []WordTimestamp, outputPath string, silenceOffsetSec float64, params SubtitleParams) error {
 	if len(words) == 0 {
 		return fmt.Errorf("no words to generate subtitles from")
 	}
@@ -63,11 +84,11 @@ func GenerateASSSubtitles(words []WordTimestamp, outputPath string, silenceOffse
 	// Build ASS content
 	var sb strings.Builder
 
-	// Script header
+	// Script header — PlayRes must match the render resolution so font sizes look correct
 	sb.WriteString("[Script Info]\n")
 	sb.WriteString("ScriptType: v4.00+\n")
-	sb.WriteString("PlayResX: 2160\n")
-	sb.WriteString("PlayResY: 3840\n")
+	sb.WriteString(fmt.Sprintf("PlayResX: %d\n", params.PlayResX))
+	sb.WriteString(fmt.Sprintf("PlayResY: %d\n", params.PlayResY))
 	sb.WriteString("WrapStyle: 0\n")
 	sb.WriteString("ScaledBorderAndShadow: yes\n")
 	sb.WriteString("\n")
@@ -79,13 +100,13 @@ func GenerateASSSubtitles(words []WordTimestamp, outputPath string, silenceOffse
 	// Default style: bold white text with black outline, bottom-center aligned
 	sb.WriteString(fmt.Sprintf(
 		"Style: Default,%s,%d,%s,%s,%s,%s,-1,0,0,0,100,100,2,0,1,%d,0,2,40,40,%d,1\n",
-		subtitleFontName, subtitleFontSize,
-		assColorWhite,     // PrimaryColour (text)
-		assColorWhite,     // SecondaryColour
-		assColorBlack,     // OutlineColour
-		assColorSemiBlack, // BackColour (shadow)
-		outlineNormal,     // Outline thickness
-		subtitleMarginV,   // MarginV (distance from bottom)
+		subtitleFontName, params.FontSize,
+		assColorWhite,         // PrimaryColour (text)
+		assColorWhite,         // SecondaryColour
+		assColorBlack,         // OutlineColour
+		assColorSemiBlack,     // BackColour (shadow)
+		params.OutlineNormal,  // Outline thickness
+		params.MarginV,        // MarginV (distance from bottom)
 	))
 
 	sb.WriteString("\n")
@@ -110,7 +131,7 @@ func GenerateASSSubtitles(words []WordTimestamp, outputPath string, silenceOffse
 			}
 
 			// Build the display text with the active word highlighted
-			displayText := buildHighlightedChunkText(chunk, wordIdx)
+			displayText := buildHighlightedChunkText(chunk, wordIdx, params.OutlineHighlight)
 
 			// Write the dialogue line
 			sb.WriteString(fmt.Sprintf(
@@ -160,7 +181,7 @@ func chunkWords(words []WordTimestamp, chunkSize int) [][]WordTimestamp {
 // the word at activeIdx is highlighted with a purple pill background.
 //
 // Output example: "THE {\3c&H9932CC&\bord8}HISTORY{\r} OF COFFEE"
-func buildHighlightedChunkText(chunk []WordTimestamp, activeIdx int) string {
+func buildHighlightedChunkText(chunk []WordTimestamp, activeIdx int, outlineHighlight int) string {
 	var parts []string
 
 	for i, word := range chunk {

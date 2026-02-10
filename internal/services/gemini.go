@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bobarin/faceless/internal/models"
+	"github.com/bobarin/episod/internal/models"
 )
 
 // NOTE: defaultStyleJSON and defaultPromptAddition are intentionally commented out.
@@ -111,18 +111,52 @@ func min(a, b int) int {
 	return b
 }
 
+// ImageGenOptions holds per-project overrides for image generation.
+// Nil fields mean "use the service-level or global default".
+type ImageGenOptions struct {
+	VisualStyle    *string // e.g. "photorealistic", "anime", "oil painting"
+	AspectRatio    *string // "9:16", "16:9", "1:1", "4:5"
+	SampleImageURL *string // URL to a custom style reference image (overrides default sample.jpeg)
+}
+
 // GenerateImage generates a single image using Gemini with style reference + style instructions.
 // Each call is independent — safe for parallel execution across clips.
-func (s *GeminiService) GenerateImage(ctx context.Context, basePrompt string, preset *models.GraphicsPreset) ([]byte, error) {
-	// Load style reference image (cached after first load)
-	styleData, mimeType, err := s.loadStyleReferenceImage()
-	if err != nil {
-		log.Printf("[Gemini] WARNING: could not load style reference image: %v (proceeding without)", err)
-		return s.generateWithoutStyleRef(ctx, basePrompt, preset)
+// opts carries per-project overrides; nil means use service defaults.
+func (s *GeminiService) GenerateImage(ctx context.Context, basePrompt string, preset *models.GraphicsPreset, opts *ImageGenOptions) ([]byte, error) {
+	// Resolve aspect ratio — per-project override or default
+	aspectRatio := "9:16"
+	if opts != nil && opts.AspectRatio != nil && *opts.AspectRatio != "" {
+		aspectRatio = *opts.AspectRatio
+	}
+
+	// Resolve style reference image:
+	// 1. Per-project URL (opts.SampleImageURL) — download it
+	// 2. Service-level local file (s.styleReferencePath)
+	var styleData []byte
+	var mimeType string
+
+	if opts != nil && opts.SampleImageURL != nil && *opts.SampleImageURL != "" {
+		// Download style reference from URL
+		var err error
+		styleData, mimeType, err = s.downloadStyleImage(ctx, *opts.SampleImageURL)
+		if err != nil {
+			log.Printf("[Gemini] WARNING: could not download custom style image %s: %v (falling back to default)", *opts.SampleImageURL, err)
+			// Fall through to load from disk
+		}
+	}
+
+	if styleData == nil {
+		// Load from local file
+		var err error
+		styleData, mimeType, err = s.loadStyleReferenceImage()
+		if err != nil {
+			log.Printf("[Gemini] WARNING: could not load style reference image: %v (proceeding without)", err)
+			return s.generateWithoutStyleRef(ctx, basePrompt, preset, opts, aspectRatio)
+		}
 	}
 
 	// Build prompt: style instructions + scene
-	promptText := composeImagePrompt(basePrompt, preset)
+	promptText := composeImagePrompt(basePrompt, preset, opts, aspectRatio)
 
 	// Build request with style reference image + text prompt
 	parts := []GeminiPart{
@@ -142,7 +176,7 @@ func (s *GeminiService) GenerateImage(ctx context.Context, basePrompt string, pr
 		GenerationConfig: &GeminiGenerationConfig{
 			ResponseModalities: []string{"TEXT", "IMAGE"},
 			ImageConfig: &GeminiImageConfig{
-				AspectRatio: "9:16",
+				AspectRatio: aspectRatio,
 				ImageSize:   "4K",
 			},
 		},
@@ -152,8 +186,8 @@ func (s *GeminiService) GenerateImage(ctx context.Context, basePrompt string, pr
 }
 
 // generateWithoutStyleRef generates an image using only the text prompt (fallback if no style ref)
-func (s *GeminiService) generateWithoutStyleRef(ctx context.Context, basePrompt string, preset *models.GraphicsPreset) ([]byte, error) {
-	promptText := composeImagePrompt(basePrompt, preset)
+func (s *GeminiService) generateWithoutStyleRef(ctx context.Context, basePrompt string, preset *models.GraphicsPreset, opts *ImageGenOptions, aspectRatio string) ([]byte, error) {
+	promptText := composeImagePrompt(basePrompt, preset, opts, aspectRatio)
 
 	reqBody := GeminiGenerateContentRequest{
 		Contents: []GeminiContent{
@@ -162,7 +196,7 @@ func (s *GeminiService) generateWithoutStyleRef(ctx context.Context, basePrompt 
 		GenerationConfig: &GeminiGenerationConfig{
 			ResponseModalities: []string{"TEXT", "IMAGE"},
 			ImageConfig: &GeminiImageConfig{
-				AspectRatio: "9:16",
+				AspectRatio: aspectRatio,
 				ImageSize:   "4K",
 			},
 		},
@@ -272,13 +306,50 @@ func (s *GeminiService) doGenerateContent(ctx context.Context, reqBody GeminiGen
 	return nil, fmt.Errorf("no image data found in response (got %d parts, none with inlineData)", len(geminiResp.Candidates[0].Content.Parts))
 }
 
+// downloadStyleImage fetches a style reference image from a URL.
+func (s *GeminiService) downloadStyleImage(ctx context.Context, url string) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to download style image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("style image download returned status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read style image body: %w", err)
+	}
+
+	// Detect MIME type from Content-Type header, default to jpeg
+	mimeType := resp.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	log.Printf("[Gemini] Downloaded custom style reference from URL (%d bytes, %s)", len(data), mimeType)
+	return data, mimeType, nil
+}
+
 // composeImagePrompt builds the full prompt: style reference instruction + scene description.
 // The heavy lifting for style is done by the sample image passed as inline data — the text
 // prompt only needs to describe the scene and remind Gemini to follow the reference style.
-func composeImagePrompt(basePrompt string, preset *models.GraphicsPreset) string {
+func composeImagePrompt(basePrompt string, preset *models.GraphicsPreset, opts *ImageGenOptions, aspectRatio string) string {
 	var prompt bytes.Buffer
 
 	prompt.WriteString("STYLE REFERENCE: Use the attached reference image as the style guide. Copy ONLY the artistic style, brushwork, lighting, color palette, and realism from the reference image. Do NOT copy the subject, people, or scene from the reference.\n\n")
+
+	// If a per-project visual style is specified, inject it prominently
+	if opts != nil && opts.VisualStyle != nil && *opts.VisualStyle != "" {
+		prompt.WriteString(fmt.Sprintf("VISUAL STYLE: Render this scene in a \"%s\" aesthetic. This overrides any conflicting style cues.\n\n", *opts.VisualStyle))
+	}
 
 	if preset != nil && preset.StyleJSON != nil {
 		prompt.WriteString("ADDITIONAL PRESET GUIDANCE:\n")
@@ -294,7 +365,17 @@ func composeImagePrompt(basePrompt string, preset *models.GraphicsPreset) string
 
 	prompt.WriteString("SCENE TO DEPICT:\n")
 	prompt.WriteString(basePrompt)
-	prompt.WriteString("\n\nOutput: Portrait 9:16, highest quality 4K.")
+
+	// Build orientation label
+	orientLabel := "Portrait"
+	if aspectRatio == "16:9" {
+		orientLabel = "Landscape"
+	} else if aspectRatio == "1:1" {
+		orientLabel = "Square"
+	} else if aspectRatio == "4:5" {
+		orientLabel = "Tall"
+	}
+	prompt.WriteString(fmt.Sprintf("\n\nOutput: %s %s, highest quality 4K.", orientLabel, aspectRatio))
 
 	return prompt.String()
 }

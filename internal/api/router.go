@@ -70,6 +70,10 @@ func NewRouter(h *Handler, cfg RouterConfig) *chi.Mux {
 
 		// Clips
 		r.Get("/projects/{projectId}/clips/{clipId}", h.GetClip)
+
+		// Presets — available creative options for project creation
+		r.Get("/presets/tones", h.ListTonePresets)
+		r.Get("/presets/visual-styles", h.ListVisualStylePresets)
 	})
 
 	return r

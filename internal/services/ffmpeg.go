@@ -50,11 +50,9 @@ func RandomEffect() ClipEffect {
 	return allEffects[rand.Intn(len(allEffects))]
 }
 
-// Output / rendering constants — 4K portrait (2160x3840) at 30fps
+// Rendering constants
 const (
-	outputWidth  = 2160
-	outputHeight = 3840
-	videoFPS     = 30
+	videoFPS = 30
 
 	// Breathing pulse: a subtle zoom oscillation layered on top of the primary motion.
 	// Because the subject is centered and dominant, this creates the illusion of the
@@ -64,22 +62,49 @@ const (
 	breathFrequency = 0.12
 )
 
+// RenderResolution defines the output video dimensions.
+// Configurable via RENDER_RESOLUTION env var: "1080p" (default) or "4k".
+type RenderResolution struct {
+	Width  int
+	Height int
+	Label  string
+}
+
+var (
+	Resolution1080p = RenderResolution{Width: 1080, Height: 1920, Label: "1080p"}
+	Resolution4K    = RenderResolution{Width: 2160, Height: 3840, Label: "4K"}
+)
+
+// ParseResolution converts a string like "1080p" or "4k" into a RenderResolution.
+func ParseResolution(s string) RenderResolution {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "4k", "2160p":
+		return Resolution4K
+	default:
+		return Resolution1080p
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FFmpegService
 // ---------------------------------------------------------------------------
 
 type FFmpegService struct {
-	tempDir string
+	tempDir    string
+	Resolution RenderResolution
 }
 
-func NewFFmpegService(tempDir string) *FFmpegService {
+func NewFFmpegService(tempDir string, resolution RenderResolution) *FFmpegService {
 	// Create temp directory if it doesn't exist
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		panic(fmt.Sprintf("failed to create temp dir: %v", err))
 	}
 
+	log.Printf("[FFmpeg] Render resolution: %s (%dx%d)", resolution.Label, resolution.Width, resolution.Height)
+
 	return &FFmpegService{
-		tempDir: tempDir,
+		tempDir:    tempDir,
+		Resolution: resolution,
 	}
 }
 
@@ -112,7 +137,7 @@ func (s *FFmpegService) PrependSilence(ctx context.Context, inputAudioPath, outp
 // durationMs is the audio duration used to calculate the frame count for the effect.
 // If subtitlePath is non-empty, TikTok-style ASS subtitles are burned into the video.
 func (s *FFmpegService) RenderClipWithEffect(ctx context.Context, imagePath, audioPath, outputPath string, effect ClipEffect, durationMs int, subtitlePath string) error {
-	vf := buildMotionFilter(effect, durationMs)
+	vf := s.buildMotionFilter(effect, durationMs)
 
 	// Append ASS subtitle burn-in if a subtitle file was generated
 	if subtitlePath != "" {
@@ -128,6 +153,7 @@ func (s *FFmpegService) RenderClipWithEffect(ctx context.Context, imagePath, aud
 		"-i", imagePath,  // Single image input (zoompan handles duration)
 		"-i", audioPath,  // Audio input
 		"-vf", vf,        // Motion effect + subtitles filter chain
+		"-af", "loudnorm=I=-16:TP=-1.5:LRA=11", // EBU R128 loudness normalization (-16 LUFS target)
 		"-c:v", "libx264",
 		"-c:a", "aac",
 		"-b:a", "192k",
@@ -163,11 +189,11 @@ func escapeFFmpegFilterPath(path string) string {
 // pulse — a gentle zoom oscillation that makes the centered subject appear to
 // "breathe" or pulse while the background edges shift slightly.
 //
-// Pipeline: image → zoompan (motion + breathing pulse baked into z expression) → output 1080x1920
+// Pipeline: image → zoompan (motion + breathing pulse baked into z expression) → output resolution
 //
-// The source images are 3072x5504 and output is 1080x1920, so we have ~3x resolution
-// headroom for panning and zooming without any quality loss.
-func buildMotionFilter(effect ClipEffect, durationMs int) string {
+// The source images are 3072x5504 and output is configurable (1080x1920 or 2160x3840),
+// so we have 2-3x resolution headroom for panning and zooming without quality loss.
+func (s *FFmpegService) buildMotionFilter(effect ClipEffect, durationMs int) string {
 	// Calculate total frames — add 2-second buffer so zoompan always produces
 	// enough frames; -shortest will trim to audio length
 	totalFrames := (durationMs * videoFPS / 1000) + videoFPS*2
@@ -265,12 +291,12 @@ func buildMotionFilter(effect ClipEffect, durationMs int) string {
 	}
 
 	// Zoompan: reads a single image, produces a video stream with the combined
-	// motion effect (pan/zoom) and breathing pulse. Output is the final resolution.
+	// motion effect (pan/zoom) and breathing pulse. Output is the configured resolution.
 	zoompan := fmt.Sprintf(
 		"zoompan=z='%s':x='%s':y='%s':d=%d:s=%dx%d:fps=%d",
 		zExpr, xExpr, yExpr,
 		totalFrames,
-		outputWidth, outputHeight,
+		s.Resolution.Width, s.Resolution.Height,
 		videoFPS,
 	)
 
@@ -340,21 +366,24 @@ func (s *FFmpegService) MixBackgroundMusic(ctx context.Context, videoPath, music
 func (s *FFmpegService) RenderClipFromVideo(ctx context.Context, videoPath, audioPath, outputPath string, subtitlePath string) error {
 	log.Printf("[FFmpeg] Combining AI video with narration audio")
 
-	// Build filter: tpad for frame freezing, optionally chain ASS subtitles
-	filterExpr := "[0:v]tpad=stop_mode=clone:stop_duration=60"
+	// Build filter_complex: video path + audio loudness normalization
+	// Video: tpad (frame freeze) → scale to target resolution → optional subtitles
+	// Audio: EBU R128 loudness normalization for consistent voice levels
+	filterExpr := fmt.Sprintf("[0:v]tpad=stop_mode=clone:stop_duration=60,scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(ow-iw)/2:(oh-ih)/2",
+		s.Resolution.Width, s.Resolution.Height, s.Resolution.Width, s.Resolution.Height)
 	if subtitlePath != "" {
 		escapedPath := escapeFFmpegFilterPath(subtitlePath)
 		filterExpr += fmt.Sprintf(",ass='%s'", escapedPath)
 		log.Printf("[FFmpeg] Burning in subtitles from %s", subtitlePath)
 	}
-	filterExpr += "[v]"
+	filterExpr += "[v];[1:a]loudnorm=I=-16:TP=-1.5:LRA=11[a]"
 
 	args := []string{
-		"-i", videoPath,  // Input 0: Veo video (visual + Veo audio we'll discard)
+		"-i", videoPath,  // Input 0: AI video (visual + AI audio we'll discard)
 		"-i", audioPath,  // Input 1: Narration audio
 		"-filter_complex", filterExpr,
 		"-map", "[v]",    // Use the padded video stream
-		"-map", "1:a",    // Use narration audio only (discard Veo audio)
+		"-map", "[a]",    // Use loudness-normalized narration audio
 		"-c:v", "libx264",
 		"-c:a", "aac",
 		"-b:a", "192k",

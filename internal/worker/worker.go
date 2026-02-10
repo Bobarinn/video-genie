@@ -8,11 +8,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/bobarin/faceless/internal/db"
-	"github.com/bobarin/faceless/internal/models"
-	"github.com/bobarin/faceless/internal/queue"
-	"github.com/bobarin/faceless/internal/services"
-	"github.com/bobarin/faceless/internal/storage"
+	"github.com/bobarin/episod/internal/db"
+	"github.com/bobarin/episod/internal/models"
+	"github.com/bobarin/episod/internal/queue"
+	"github.com/bobarin/episod/internal/services"
+	"github.com/bobarin/episod/internal/storage"
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 )
@@ -27,8 +27,16 @@ type Worker struct {
 	veo                 *services.VeoService      // Optional: nil when VEO_ENABLED=false (legacy)
 	xaiVideo            *services.XAIVideoService // Optional: nil when XAI_VIDEO_ENABLED=false
 	ffmpeg              *services.FFmpegService
-	backgroundMusicPath string       // Path to background music file (empty = no music)
-	uploadSem           chan struct{} // Limits concurrent Supabase uploads to prevent congestion
+	backgroundMusicPath string // Path to background music file (empty = no music)
+
+	// Per-service semaphores — prevents rate-limit errors and resource exhaustion
+	// when multiple clips process concurrently. Each semaphore bounds the number
+	// of in-flight requests to that provider across all goroutines.
+	uploadSem chan struct{} // Supabase Storage uploads (bound: 3)
+	geminiSem chan struct{} // Gemini image generation (bound: 2)
+	ttsSem    chan struct{} // TTS API calls (bound: 4)
+	xaiSem    chan struct{} // xAI video generation (bound: 2)
+	renderSem chan struct{} // FFmpeg render processes (bound: 2 — CPU intensive)
 }
 
 func New(
@@ -54,24 +62,34 @@ func New(
 		xaiVideo:            xaiVideoSvc,
 		ffmpeg:              ffmpegSvc,
 		backgroundMusicPath: backgroundMusicPath,
-		uploadSem:           make(chan struct{}, 4), // Allow max 2 concurrent uploads
+		uploadSem:           make(chan struct{}, 3), // Supabase concurrent uploads
+		geminiSem:           make(chan struct{}, 2), // Gemini image gen (heavy, rate-limited)
+		ttsSem:              make(chan struct{}, 4), // TTS calls (lightweight, higher throughput)
+		xaiSem:              make(chan struct{}, 2), // xAI video gen (long-running, quota-sensitive)
+		renderSem:           make(chan struct{}, 2), // FFmpeg renders (CPU/RAM intensive)
 	}
 }
 
-// uploadWithLimit wraps an upload call with a semaphore to prevent Supabase congestion.
-// At most 2 uploads can happen simultaneously across all workers.
-func (w *Worker) uploadWithLimit(ctx context.Context, label string, fn func() error) error {
-	log.Printf("[Upload] %s waiting for upload slot...", label)
+// withSemaphore wraps a function call with a semaphore to bound concurrency.
+// It acquires a slot, runs fn, and releases the slot when done.
+// If the context is cancelled while waiting, it returns immediately.
+func (w *Worker) withSemaphore(ctx context.Context, sem chan struct{}, label string, fn func() error) error {
+	log.Printf("[%s] waiting for slot...", label)
 	select {
-	case w.uploadSem <- struct{}{}:
+	case sem <- struct{}{}:
 		// Acquired slot
 	case <-ctx.Done():
-		return fmt.Errorf("upload cancelled while waiting for slot: %w", ctx.Err())
+		return fmt.Errorf("%s cancelled while waiting for slot: %w", label, ctx.Err())
 	}
-	defer func() { <-w.uploadSem }()
+	defer func() { <-sem }()
 
-	log.Printf("[Upload] %s uploading...", label)
+	log.Printf("[%s] acquired slot, running...", label)
 	return fn()
+}
+
+// uploadWithLimit wraps an upload call with the upload semaphore.
+func (w *Worker) uploadWithLimit(ctx context.Context, label string, fn func() error) error {
+	return w.withSemaphore(ctx, w.uploadSem, "Upload:"+label, fn)
 }
 
 // Start begins processing jobs from all queues
@@ -146,8 +164,17 @@ func (w *Worker) handleGeneratePlan(ctx context.Context, job *queue.Job) error {
 		// Future: fetch series guidance
 	}
 
+	// Build per-project plan options from the project's customization fields
+	planOpts := &services.PlanOptions{
+		Tone:        project.Tone,
+		VisualStyle: project.VisualStyle,
+		AspectRatio: project.AspectRatio,
+		CTA:         project.CTA,
+		Language:    project.Language,
+	}
+
 	// Generate plan with OpenAI
-	plan, err := w.openai.GeneratePlan(ctx, project.Topic, project.TargetDurationSeconds, seriesGuidance)
+	plan, err := w.openai.GeneratePlan(ctx, project.Topic, project.TargetDurationSeconds, seriesGuidance, planOpts)
 	if err != nil {
 		w.db.UpdateProjectError(ctx, job.ProjectID, "plan_generation_failed", err.Error())
 		return fmt.Errorf("failed to generate plan: %w", err)
@@ -272,13 +299,36 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 
 	g, gctx := errgroup.WithContext(ctx)
 
+	// Build per-project options from the project's customization fields
+	imageOpts := &services.ImageGenOptions{
+		VisualStyle:    project.VisualStyle,
+		AspectRatio:    project.AspectRatio,
+		SampleImageURL: project.SampleImageURL,
+	}
+	videoOpts := &services.VideoGenOptions{
+		VisualStyle: project.VisualStyle,
+		AspectRatio: project.AspectRatio,
+	}
+	// Per-project voice ID (empty string = use service default)
+	projectVoiceID := ""
+	if project.VoiceID != nil && *project.VoiceID != "" {
+		projectVoiceID = *project.VoiceID
+	}
+	// Per-project language for Whisper transcription
+	whisperLanguage := "en"
+	if project.Language != nil && *project.Language != "" {
+		whisperLanguage = *project.Language
+	}
+
 	// ── Pipeline A: Visual (image → upload → AI video) ─────────────────
 	g.Go(func() error {
-		// A1: Generate image
+		// A1: Generate image (bounded by geminiSem)
 		log.Printf("Clip %d: generating image...", clip.ClipIndex)
-		var err error
-		imageData, err = w.gemini.GenerateImage(gctx, clip.ImagePrompt, preset)
-		if err != nil {
+		if err := w.withSemaphore(gctx, w.geminiSem, fmt.Sprintf("Gemini:clip_%d", clip.ClipIndex), func() error {
+			var genErr error
+			imageData, genErr = w.gemini.GenerateImage(gctx, clip.ImagePrompt, preset, imageOpts)
+			return genErr
+		}); err != nil {
 			w.db.UpdateClipError(gctx, clip.ID, fmt.Sprintf("Image generation failed: %v", err))
 			return fmt.Errorf("failed to generate image: %w", err)
 		}
@@ -311,7 +361,14 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 
 		// A3: AI video generation (non-critical — failure falls back to Ken Burns)
 		if w.xaiVideo != nil && clip.VideoPrompt != nil && *clip.VideoPrompt != "" {
-			imagePublicURL := w.storage.GetPublicURL(imageAsset.StoragePath)
+			// Use a short-lived signed URL (15 min) instead of a public URL.
+			// xAI only needs to fetch the image once during generation; a public URL
+			// would expose assets permanently without authentication.
+			imagePublicURL, err := w.storage.GetSignedURL(gctx, imageAsset.StoragePath, 900)
+			if err != nil {
+				log.Printf("Clip %d: WARNING — could not generate signed URL for xAI, using public URL: %v", clip.ClipIndex, err)
+				imagePublicURL = w.storage.GetPublicURL(imageAsset.StoragePath)
+			}
 
 			// Use estimated_duration_sec from the plan to control xAI video length.
 			// This prevents generating video longer than needed (wasting xAI tokens).
@@ -322,9 +379,12 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 			}
 
 			log.Printf("Clip %d: generating xAI video from image (url=%s, duration=%ds)...", clip.ClipIndex, imagePublicURL, xaiDuration)
-			aiVideoData, err = w.xaiVideo.GenerateVideo(gctx, *clip.VideoPrompt, imagePublicURL, xaiDuration)
-			if err != nil {
-				log.Printf("Clip %d: xAI video generation failed, falling back to Ken Burns effects: %v", clip.ClipIndex, err)
+			if xaiErr := w.withSemaphore(gctx, w.xaiSem, fmt.Sprintf("xAI:clip_%d", clip.ClipIndex), func() error {
+				var genErr error
+				aiVideoData, genErr = w.xaiVideo.GenerateVideo(gctx, *clip.VideoPrompt, imagePublicURL, xaiDuration, videoOpts)
+				return genErr
+			}); xaiErr != nil {
+				log.Printf("Clip %d: xAI video generation failed, falling back to Ken Burns effects: %v", clip.ClipIndex, xaiErr)
 				aiVideoData = nil
 			} else {
 				log.Printf("Clip %d: xAI video generated (%d bytes)", clip.ClipIndex, len(aiVideoData))
@@ -352,8 +412,12 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 		}
 
 		log.Printf("Clip %d: generating audio...", clip.ClipIndex)
-		audioResp, err := w.tts.GenerateSpeech(gctx, clip.Script, voiceStyle)
-		if err != nil {
+		var audioResp *services.TTSResponse
+		if err := w.withSemaphore(gctx, w.ttsSem, fmt.Sprintf("TTS:clip_%d", clip.ClipIndex), func() error {
+			var genErr error
+			audioResp, genErr = w.tts.GenerateSpeech(gctx, clip.Script, voiceStyle, projectVoiceID)
+			return genErr
+		}); err != nil {
 			w.db.UpdateClipError(gctx, clip.ID, fmt.Sprintf("TTS failed: %v", err))
 			return fmt.Errorf("failed to generate audio: %w", err)
 		}
@@ -386,8 +450,8 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 		}
 
 		// B3: Whisper transcription for subtitles (non-critical — failure is OK)
-		log.Printf("Clip %d: transcribing audio for subtitles...", clip.ClipIndex)
-		wordTimestamps, err = w.openai.TranscribeAudio(gctx, audioData, "en")
+		log.Printf("Clip %d: transcribing audio for subtitles (lang=%s)...", clip.ClipIndex, whisperLanguage)
+		wordTimestamps, err = w.openai.TranscribeAudio(gctx, audioData, whisperLanguage)
 		if err != nil {
 			log.Printf("Clip %d: WARNING — Whisper transcription failed, rendering without subtitles: %v", clip.ClipIndex, err)
 			wordTimestamps = nil
@@ -403,10 +467,12 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 		return fmt.Errorf("clip processing failed: %w", err)
 	}
 
-	// ── Render: needs results from both pipelines ──────────────────────
+	// ── Render: needs results from both pipelines (bounded by renderSem) ─
 	log.Printf("Clip %d: both pipelines complete, rendering video...", clip.ClipIndex)
 
-	if err := w.renderClip(ctx, job.ProjectID, clip.ID, audioAsset, imageAsset, imageData, aiVideoData, wordTimestamps); err != nil {
+	if err := w.withSemaphore(ctx, w.renderSem, fmt.Sprintf("Render:clip_%d", clip.ClipIndex), func() error {
+		return w.renderClip(ctx, job.ProjectID, clip.ID, audioData, imageData, aiVideoData, wordTimestamps)
+	}); err != nil {
 		w.db.UpdateClipError(ctx, clip.ID, fmt.Sprintf("Render failed: %v", err))
 		return fmt.Errorf("failed to render clip: %w", err)
 	}
@@ -456,7 +522,7 @@ func (w *Worker) handleProcessClip(ctx context.Context, job *queue.Job) error {
 // In both paths:
 //   - A 500ms silence buffer is prepended to the audio for natural pauses.
 //   - If word timestamps are available, TikTok-style subtitles are burned into the video.
-func (w *Worker) renderClip(ctx context.Context, projectID, clipID uuid.UUID, audioAsset, imageAsset *models.Asset, imageData, aiVideoData []byte, wordTimestamps []services.WordTimestamp) error {
+func (w *Worker) renderClip(ctx context.Context, projectID, clipID uuid.UUID, audioData, imageData, aiVideoData []byte, wordTimestamps []services.WordTimestamp) error {
 	// Create temp file paths
 	audioRawPath := w.ffmpeg.CreateTempFile(fmt.Sprintf("audio_raw_%s.mp3", clipID.String()))
 	audioPaddedPath := w.ffmpeg.CreateTempFile(fmt.Sprintf("audio_padded_%s.mp3", clipID.String()))
@@ -465,13 +531,9 @@ func (w *Worker) renderClip(ctx context.Context, projectID, clipID uuid.UUID, au
 
 	defer w.ffmpeg.Cleanup(audioRawPath, audioPaddedPath, outputPath, subtitlePath)
 
-	// Download audio from storage
-	audioBytes, err := w.storage.Download(ctx, audioAsset.StoragePath)
-	if err != nil {
-		return fmt.Errorf("failed to download audio: %w", err)
-	}
-
-	if err := os.WriteFile(audioRawPath, audioBytes, 0644); err != nil {
+	// Write audio bytes directly to temp file — no re-download from storage needed
+	// since we already have the TTS output in memory from Pipeline B.
+	if err := os.WriteFile(audioRawPath, audioData, 0644); err != nil {
 		return fmt.Errorf("failed to write audio file: %w", err)
 	}
 
@@ -493,7 +555,8 @@ func (w *Worker) renderClip(ctx context.Context, projectID, clipID uuid.UUID, au
 		if silenceUsed {
 			silenceOffsetSec = float64(silenceMs) / 1000.0
 		}
-		if err := services.GenerateASSSubtitles(wordTimestamps, subtitlePath, silenceOffsetSec); err != nil {
+		subParams := services.SubtitleParamsForResolution(w.ffmpeg.Resolution)
+		if err := services.GenerateASSSubtitles(wordTimestamps, subtitlePath, silenceOffsetSec, subParams); err != nil {
 			log.Printf("Warning: failed to generate subtitles, rendering without: %v", err)
 		} else {
 			subtitleFile = subtitlePath

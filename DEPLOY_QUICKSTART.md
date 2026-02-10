@@ -38,8 +38,8 @@ apt install -y nginx certbot python3-certbot-nginx git
 
 ```bash
 cd /opt
-git clone YOUR_REPOSITORY_URL faceless
-cd faceless
+git clone YOUR_REPOSITORY_URL episod
+cd episod
 ```
 
 ### 5. Configure Environment
@@ -60,7 +60,7 @@ CORS_ALLOWED_ORIGINS=https://yourdomain.com
 # Supabase
 SUPABASE_URL=https://xxx.supabase.co
 SUPABASE_SERVICE_KEY=your_service_key
-SUPABASE_STORAGE_BUCKET=faceless-videos
+SUPABASE_STORAGE_BUCKET=files
 
 # AI Services
 OPENAI_API_KEY=sk-xxx
@@ -90,7 +90,7 @@ This will build and start all containers. Wait for it to complete.
 Create temporary HTTP config for SSL certificate:
 
 ```bash
-cat > /etc/nginx/sites-available/faceless-temp << 'EOF'
+cat > /etc/nginx/sites-available/episod-temp << 'EOF'
 server {
     listen 80;
     server_name yourdomain.com;
@@ -108,9 +108,9 @@ server {
 EOF
 
 # Replace yourdomain.com with your actual domain
-sed -i 's/yourdomain.com/YOUR_DOMAIN/g' /etc/nginx/sites-available/faceless-temp
+sed -i 's/yourdomain.com/YOUR_DOMAIN/g' /etc/nginx/sites-available/episod-temp
 
-ln -sf /etc/nginx/sites-available/faceless-temp /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/episod-temp /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
 ```
@@ -128,12 +128,12 @@ Follow prompts, agree to terms, choose redirect option (recommended: Yes).
 
 ```bash
 # Update the template with your domain
-sed -i 's/YOUR_DOMAIN/yourdomain.com/g' /opt/faceless/nginx.conf.template
-cp /opt/faceless/nginx.conf.template /etc/nginx/sites-available/faceless
+sed -i 's/YOUR_DOMAIN/yourdomain.com/g' /opt/episod/nginx.conf.template
+cp /opt/episod/nginx.conf.template /etc/nginx/sites-available/episod
 
 # Enable full config
-rm /etc/nginx/sites-enabled/faceless-temp
-ln -sf /etc/nginx/sites-available/faceless /etc/nginx/sites-enabled/
+rm /etc/nginx/sites-enabled/episod-temp
+ln -sf /etc/nginx/sites-available/episod /etc/nginx/sites-enabled/
 
 nginx -t && systemctl reload nginx
 ```

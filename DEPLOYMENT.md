@@ -1,6 +1,6 @@
 # Deployment Guide for Hetzner Server
 
-This guide walks you through deploying the Faceless Video Generator to a Hetzner server with Docker, Nginx, and SSL.
+This guide walks you through deploying the Episod to a Hetzner server with Docker, Nginx, and SSL.
 
 ## Prerequisites
 
@@ -54,8 +54,8 @@ ffmpeg -version
 cd /opt
 
 # Clone your repository
-git clone YOUR_REPOSITORY_URL faceless
-cd faceless
+git clone YOUR_REPOSITORY_URL episod
+cd episod
 ```
 
 ## Step 5: Configure Environment Variables
@@ -90,7 +90,7 @@ REDIS_URL=redis://redis:6379
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your-service-key
-SUPABASE_STORAGE_BUCKET=faceless-videos
+SUPABASE_STORAGE_BUCKET=files
 
 # OpenAI
 OPENAI_API_KEY=your-openai-key
@@ -142,19 +142,19 @@ Press Ctrl+C to exit logs when satisfied.
 
 ```bash
 # Copy the nginx template
-cp nginx.conf.template /etc/nginx/sites-available/faceless
+cp nginx.conf.template /etc/nginx/sites-available/episod
 
 # Replace YOUR_DOMAIN with your actual domain
-sed -i 's/YOUR_DOMAIN/yourdomain.com/g' /etc/nginx/sites-available/faceless
+sed -i 's/YOUR_DOMAIN/yourdomain.com/g' /etc/nginx/sites-available/episod
 
 # Or edit manually if you prefer
-nano /etc/nginx/sites-available/faceless
+nano /etc/nginx/sites-available/episod
 ```
 
 Enable the site (before SSL):
 ```bash
 # Create a temporary HTTP-only config for Certbot
-cat > /etc/nginx/sites-available/faceless-temp << 'EOF'
+cat > /etc/nginx/sites-available/episod-temp << 'EOF'
 server {
     listen 80;
     listen [::]:80;
@@ -175,10 +175,10 @@ server {
 EOF
 
 # Replace yourdomain.com with your domain
-sed -i 's/yourdomain.com/YOUR_ACTUAL_DOMAIN/g' /etc/nginx/sites-available/faceless-temp
+sed -i 's/yourdomain.com/YOUR_ACTUAL_DOMAIN/g' /etc/nginx/sites-available/episod-temp
 
 # Enable temporary config
-ln -sf /etc/nginx/sites-available/faceless-temp /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/episod-temp /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
 # Test nginx configuration
@@ -207,10 +207,10 @@ certbot --nginx -d yourdomain.com
 
 ```bash
 # Remove temporary config
-rm /etc/nginx/sites-enabled/faceless-temp
+rm /etc/nginx/sites-enabled/episod-temp
 
 # Enable full config with SSL
-ln -sf /etc/nginx/sites-available/faceless /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/episod /etc/nginx/sites-enabled/
 
 # Test configuration
 nginx -t
@@ -272,7 +272,7 @@ docker compose -f docker-compose.prod.yml restart api
 
 ### Update Deployment
 ```bash
-cd /opt/faceless
+cd /opt/episod
 
 # Pull latest code
 git pull
@@ -311,10 +311,10 @@ docker compose -f docker-compose.prod.yml exec postgres psql -U postgres -d face
 ### Nginx Logs
 ```bash
 # Access log
-tail -f /var/log/nginx/faceless_access.log
+tail -f /var/log/nginx/episod_access.log
 
 # Error log
-tail -f /var/log/nginx/faceless_error.log
+tail -f /var/log/nginx/episod_error.log
 ```
 
 ## Troubleshooting
@@ -385,7 +385,7 @@ ufw enable
 apt update && apt upgrade -y
 
 # Update Docker images periodically
-cd /opt/faceless
+cd /opt/episod
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -393,20 +393,20 @@ docker compose -f docker-compose.prod.yml up -d
 4. **Backup Database**:
 ```bash
 # Create backup script
-cat > /opt/faceless/backup.sh << 'EOF'
+cat > /opt/episod/backup.sh << 'EOF'
 #!/bin/bash
-BACKUP_DIR="/opt/faceless/backups"
+BACKUP_DIR="/opt/episod/backups"
 mkdir -p $BACKUP_DIR
 DATE=$(date +%Y%m%d_%H%M%S)
-docker compose -f /opt/faceless/docker-compose.prod.yml exec -T postgres pg_dump -U postgres faceless | gzip > $BACKUP_DIR/backup_$DATE.sql.gz
+docker compose -f /opt/episod/docker-compose.prod.yml exec -T postgres pg_dump -U postgres faceless | gzip > $BACKUP_DIR/backup_$DATE.sql.gz
 # Keep only last 7 backups
 ls -t $BACKUP_DIR/backup_*.sql.gz | tail -n +8 | xargs -r rm
 EOF
 
-chmod +x /opt/faceless/backup.sh
+chmod +x /opt/episod/backup.sh
 
 # Add to crontab for daily backups at 2 AM
-(crontab -l 2>/dev/null; echo "0 2 * * * /opt/faceless/backup.sh") | crontab -
+(crontab -l 2>/dev/null; echo "0 2 * * * /opt/episod/backup.sh") | crontab -
 ```
 
 ## Support

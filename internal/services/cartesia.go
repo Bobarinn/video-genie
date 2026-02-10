@@ -101,12 +101,18 @@ type GenerateSpeechOptions struct {
 
 // GenerateSpeech generates audio from text using Cartesia TTS.
 // Implements the TTSService interface.
-func (s *CartesiaService) GenerateSpeech(ctx context.Context, text, voiceStyle string) (*TTSResponse, error) {
+// voiceID overrides the default voice when non-empty (Cartesia uses its own voice IDs).
+func (s *CartesiaService) GenerateSpeech(ctx context.Context, text, voiceStyle, voiceID string) (*TTSResponse, error) {
 	// Parse emotion from voiceStyle (simple heuristic)
 	emotion := parseEmotionFromStyle(voiceStyle)
 
+	effectiveVoice := s.defaultVoiceID
+	if voiceID != "" {
+		effectiveVoice = voiceID
+	}
+
 	opts := GenerateSpeechOptions{
-		VoiceID:  s.defaultVoiceID,
+		VoiceID:  effectiveVoice,
 		Language: "en",
 		Emotion:  emotion,
 		Speed:    0.85, // Slower pace for clear, natural-sounding narration

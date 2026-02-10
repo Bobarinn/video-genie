@@ -38,13 +38,24 @@ type VideoPlan struct {
 	NarrativeStructure string     `json:"narrative_structure"`
 }
 
-// GeneratePlan generates a video plan using OpenAI structured output
-func (s *OpenAIService) GeneratePlan(ctx context.Context, topic string, targetDuration int, seriesGuidance *string) (*VideoPlan, error) {
+// PlanOptions holds per-project customization passed into plan generation.
+// All fields are optional pointers — nil means "use defaults".
+type PlanOptions struct {
+	Tone        *string // "documentary", "dramatic", "comedic", etc.
+	VisualStyle *string // "cinematic watercolor", "photorealistic", etc.
+	AspectRatio *string // "9:16", "16:9", "1:1"
+	CTA         *string // Call-to-action text for the final clip
+	Language    *string // ISO 639-1 code ("en", "es", "fr", ...)
+}
+
+// GeneratePlan generates a video plan using OpenAI structured output.
+// opts carries per-project customization; nil fields use global defaults.
+func (s *OpenAIService) GeneratePlan(ctx context.Context, topic string, targetDuration int, seriesGuidance *string, opts *PlanOptions) (*VideoPlan, error) {
 	// Build system prompt
-	systemPrompt := buildPlanSystemPrompt(targetDuration, seriesGuidance)
+	systemPrompt := buildPlanSystemPrompt(targetDuration, seriesGuidance, opts)
 
 	// Build user prompt
-	userPrompt := fmt.Sprintf("Generate a compelling short-form video plan for the topic: \"%s\"\n\nTarget duration: %d seconds", topic, targetDuration)
+	userPrompt := buildPlanUserPrompt(topic, targetDuration, opts)
 
 	// Call OpenAI with structured output (using JSON mode)
 	resp, err := s.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
@@ -197,8 +208,52 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-func buildPlanSystemPrompt(targetDuration int, seriesGuidance *string) string {
-	basePrompt := fmt.Sprintf(`You are an expert video content strategist creating short-form video plans for mobile-first, portrait-format viewing (9:16 aspect ratio, like TikTok/Reels/Shorts).
+func buildPlanSystemPrompt(targetDuration int, seriesGuidance *string, opts *PlanOptions) string {
+	// Resolve customization with defaults
+	tone := "documentary"
+	visualStyle := "cinematic watercolor"
+	aspectRatio := "9:16"
+	language := "en"
+	cta := ""
+
+	if opts != nil {
+		if opts.Tone != nil && *opts.Tone != "" {
+			tone = *opts.Tone
+		}
+		if opts.VisualStyle != nil && *opts.VisualStyle != "" {
+			visualStyle = *opts.VisualStyle
+		}
+		if opts.AspectRatio != nil && *opts.AspectRatio != "" {
+			aspectRatio = *opts.AspectRatio
+		}
+		if opts.Language != nil && *opts.Language != "" {
+			language = *opts.Language
+		}
+		if opts.CTA != nil && *opts.CTA != "" {
+			cta = *opts.CTA
+		}
+	}
+
+	// Determine orientation description from aspect ratio
+	orientationDesc := "portrait-format viewing (like TikTok/Reels/Shorts)"
+	if aspectRatio == "16:9" {
+		orientationDesc = "landscape-format viewing (like YouTube)"
+	} else if aspectRatio == "1:1" {
+		orientationDesc = "square-format viewing (like Instagram feed)"
+	} else if aspectRatio == "4:5" {
+		orientationDesc = "tall rectangular viewing (like Instagram portrait)"
+	}
+
+	basePrompt := fmt.Sprintf(`You are an expert video content strategist creating short-form video plans for %s (%s aspect ratio).
+
+TONE: %s
+The entire script, narration, and mood must match a "%s" tone. Let this guide the vocabulary, pacing, and emotional register of every clip.
+
+VISUAL STYLE: %s
+All image_prompt and video_prompt fields must describe scenes in the "%s" visual aesthetic. Embed this style naturally into descriptions — it should feel like every frame was rendered in this style.
+
+LANGUAGE: %s
+All script text must be written in the "%s" language. voice_style_instruction should still be written in English (for the TTS engine), but the spoken script itself must be in the specified language.
 
 Your task is to create a compelling %d-second video plan with multiple clips.
 
@@ -206,7 +261,19 @@ Guidelines:
 - Each clip should be 8-15 seconds
 - Create a strong hook in the first clip (dramatic opening, surprising fact, or compelling question)
 - Build narrative momentum across clips
-- End with a satisfying conclusion or call-to-action
+- End with a satisfying conclusion`, orientationDesc, aspectRatio,
+		tone, tone, visualStyle, visualStyle, language, language, targetDuration)
+
+	// Add CTA instruction if provided
+	if cta != "" {
+		basePrompt += fmt.Sprintf(`
+- The FINAL clip's script MUST end with this call-to-action: "%s". Weave it naturally into the narration — do not just append it mechanically.`, cta)
+	} else {
+		basePrompt += `
+- End with a satisfying conclusion or call-to-action`
+	}
+
+	basePrompt += fmt.Sprintf(`
 - Voice instructions should match the mood of each clip
 
 SCRIPT WRITING - CRITICAL (scripts are read aloud as voiceover narration):
@@ -222,7 +289,7 @@ The script field is narration that will be converted to speech via text-to-speec
 - Read each script aloud in your head. If it sounds rushed, shorten it. If it sounds monotonous, vary the rhythm.
 
 IMAGE PROMPTS - CRITICAL:
-Every image_prompt MUST be a complete, detailed scene description that includes ALL of the following:
+Every image_prompt MUST be a complete, detailed scene description rendered in the "%s" visual style. Include ALL of the following:
 
 1. SUBJECT(S) - The main focus:
    - Who or what is in the scene (person, object, symbol)
@@ -240,25 +307,19 @@ Every image_prompt MUST be a complete, detailed scene description that includes 
    - Atmosphere (busy market, empty hallway, rainy street, bustling café)
    - Depth layers: foreground, midground, background elements
 
-4. PORTRAIT FORMAT (9:16) - Optimize for vertical mobile viewing:
-   - Compose for vertical framing—avoid wide horizontal scenes that would be cropped badly
-   - Think "phone screen": what looks compelling when held vertically
-
-Example of a GOOD image_prompt:
-"A young woman in a vintage blue dress stands on a cobblestone Parisian street, framed naturally in the vertical frame. Her expression is wistful, eyes gazing slightly off-camera. Around her: ornate lampposts, a café terrace with small round tables and people sipping coffee, Art Nouveau building facades with wrought-iron balconies. Golden hour light illuminates the scene warmly. Rich detail throughout. Portrait orientation 9:16."
-
-Example of a BAD image_prompt (too vague):
-"A woman on a street with buildings"
+4. FORMAT (%s) - Optimize for the target aspect ratio:
+   - Compose for %s framing
+   - Think about what looks compelling in this format
 
 IMAGE_PROMPT + VIDEO_PROMPT - THEY WORK TOGETHER:
-image_prompt and video_prompt are NOT separate entities. The image_prompt defines the static starting point; the video_prompt describes what MOTION or CHANGE should happen to that scene. The video will be generated using AI video generation (Veo 3.1), so write video_prompt as a cinematic video direction.
+image_prompt and video_prompt are NOT separate entities. The image_prompt defines the static starting point; the video_prompt describes what MOTION or CHANGE should happen to that scene. The video will be generated using AI video generation, so write video_prompt as a cinematic video direction.
 
 video_prompt MUST directly relate to the scene in image_prompt. Write it as a CINEMATIC VIDEO DESCRIPTION following these elements:
 
 1. SUBJECT & ACTION (required): What the subject(s) do — keep motion SUBTLE and REALISTIC. Think living photograph, not action movie.
    - Good: "The woman's hair sways gently in a soft breeze. She slowly turns her head, a faint smile forming."
    - Good: "The old man's chest rises and falls with a slow breath. His fingers tap once on the wooden table."
-   - Bad: "Woman runs across the street and jumps" (too dramatic, unrealistic for a painting-to-video)
+   - Bad: "Woman runs across the street and jumps" (too dramatic, unrealistic)
 
 2. ENVIRONMENTAL MOTION (required): How the environment subtly comes alive:
    - Gentle atmospheric effects: dust motes floating in light, leaves rustling, smoke curling, water rippling, clouds drifting
@@ -288,16 +349,10 @@ CRITICAL video_prompt rules:
 - Always describe the motion in present tense, as a continuous action.
 - Do NOT include audio cues, dialogue, or sound descriptions — the video is silent (narration is separate).
 
-Example of a GOOD video_prompt:
-"Close-up cinematic shot. The young woman's eyes glisten with reflected golden light as she slowly turns her gaze toward the camera. A gentle breeze lifts a few strands of her dark hair. In the background, the cobblestone café terrace is softly alive — steam rises lazily from coffee cups, a distant figure shifts in their seat. The warm golden-hour light gradually intensifies, casting longer amber shadows. Barely perceptible slow push-in toward her face. Shallow depth of field. Silent — no dialogue or audio."
-
-Example of a BAD video_prompt (too vague or too dramatic):
-"Woman moves on the street" or "Explosive action sequence with camera spinning"
-
 ALL FIELDS ARE REQUIRED - DO NOT LEAVE ANY FIELD EMPTY:
 Every clip MUST have ALL of these fields populated with meaningful content:
 - script: The narration text (what the voiceover says). NEVER empty. Must be conversational, engaging, and match the clip's scene.
-- voice_style_instruction: How the narrator should deliver the script. Should describe tone, pace, and emotion. Always favor SLOW, DELIBERATE pacing for clarity. Examples: "slow, mysterious, and low-pitched", "measured and warm, with nostalgic pauses", "calm and authoritative, steady pace", "gentle buildup, slightly faster but still clear". Avoid "fast-paced" — narration should always be easy to follow. NEVER empty.
+- voice_style_instruction: How the narrator should deliver the script. Should describe tone, pace, and emotion. Always favor SLOW, DELIBERATE pacing for clarity. NEVER empty.
 - image_prompt: Full scene description as detailed above. NEVER empty.
 - video_prompt: Motion/change description tied to the image. NEVER empty.
 - clip_index: Zero-based index (0, 1, 2, 3...). First clip=0, second=1, etc.
@@ -309,11 +364,38 @@ Top-level fields (also required):
 
 If ANY field is empty or zero, the plan is INVALID and will be rejected.
 
-Structure your response as JSON matching the required schema.`, targetDuration)
+Structure your response as JSON matching the required schema.`, visualStyle, aspectRatio, aspectRatio, targetDuration)
 
 	if seriesGuidance != nil && *seriesGuidance != "" {
 		basePrompt += fmt.Sprintf("\n\nSeries Guidance:\n%s", *seriesGuidance)
 	}
 
 	return basePrompt
+}
+
+// buildPlanUserPrompt constructs the user-facing prompt with customization context.
+func buildPlanUserPrompt(topic string, targetDuration int, opts *PlanOptions) string {
+	prompt := fmt.Sprintf("Generate a compelling short-form video plan for the topic: \"%s\"\n\nTarget duration: %d seconds", topic, targetDuration)
+
+	// Add customization context so the model has it in the user turn too
+	if opts != nil {
+		var extras []string
+		if opts.Tone != nil && *opts.Tone != "" {
+			extras = append(extras, fmt.Sprintf("Tone: %s", *opts.Tone))
+		}
+		if opts.VisualStyle != nil && *opts.VisualStyle != "" {
+			extras = append(extras, fmt.Sprintf("Visual style: %s", *opts.VisualStyle))
+		}
+		if opts.Language != nil && *opts.Language != "" && *opts.Language != "en" {
+			extras = append(extras, fmt.Sprintf("Language: %s", *opts.Language))
+		}
+		if opts.CTA != nil && *opts.CTA != "" {
+			extras = append(extras, fmt.Sprintf("End with CTA: \"%s\"", *opts.CTA))
+		}
+		if len(extras) > 0 {
+			prompt += "\n\nCustomization:\n- " + strings.Join(extras, "\n- ")
+		}
+	}
+
+	return prompt
 }

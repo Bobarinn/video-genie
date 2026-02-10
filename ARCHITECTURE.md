@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document provides visual representations of the Faceless Video Generator architecture.
+This document provides visual representations of the Episod architecture.
 
 ## System Architecture
 
@@ -291,7 +291,7 @@ Redis Queue
 ## Asset Storage Structure
 
 ```
-Supabase Storage Bucket: faceless-videos
+Supabase Storage Bucket: files
 │
 ├── {project_id_1}/
 │   ├── plan.json                    # Generated plan

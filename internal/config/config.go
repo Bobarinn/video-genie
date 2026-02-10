@@ -53,6 +53,9 @@ type Config struct {
 	// Audio
 	BackgroundMusicPath string // Path to default background music file
 
+	// Rendering
+	RenderResolution string // "1080p" (default, fast, good for TikTok/Reels) or "4k" (high quality)
+
 	// Worker
 	MaxConcurrentJobs int
 }
@@ -70,7 +73,7 @@ func Load() (*Config, error) {
 		RedisURL:              getEnv("REDIS_URL", "redis://localhost:6379"),
 		SupabaseURL:           getEnv("SUPABASE_URL", ""),
 		SupabaseServiceKey:    getEnv("SUPABASE_SERVICE_KEY", ""),
-		SupabaseStorageBucket: getEnv("SUPABASE_STORAGE_BUCKET", "faceless-videos"),
+		SupabaseStorageBucket: getEnv("SUPABASE_STORAGE_BUCKET", "files"),
 		OpenAIKey:             getEnv("OPENAI_API_KEY", ""),
 		GeminiKey:                 getEnv("GEMINI_API_KEY", ""),
 		GeminiStyleReferenceImage: getEnv("GEMINI_STYLE_REFERENCE_IMAGE", "assets/style-reference/sample.jpeg"),
@@ -84,6 +87,7 @@ func Load() (*Config, error) {
 		CartesiaURL:           getEnv("CARTESIA_API_URL", "https://api.cartesia.ai"),
 		CartesiaVoiceID:       getEnv("CARTESIA_VOICE_ID", ""),
 		BackgroundMusicPath:   getEnv("BACKGROUND_MUSIC_PATH", "assets/music/music.mp3"),
+		RenderResolution:     getEnv("RENDER_RESOLUTION", "1080p"),
 		MaxConcurrentJobs:     getEnvInt("MAX_CONCURRENT_JOBS", 5),
 	}
 

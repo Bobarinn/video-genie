@@ -1,6 +1,6 @@
 # Cartesia TTS Setup Guide
 
-This guide explains how to set up and configure Cartesia Text-to-Speech for the Faceless Video Generator.
+This guide explains how to set up and configure Cartesia Text-to-Speech for the Episod.
 
 ## Getting Started with Cartesia
 
