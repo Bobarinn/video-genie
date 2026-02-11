@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/bobarin/faceless/internal/models"
+	"github.com/bobarin/episod/internal/models"
 	"github.com/google/uuid"
 )
 
@@ -13,8 +13,10 @@ func (db *DB) CreateProject(ctx context.Context, project *models.Project) error 
 	query := `
 		INSERT INTO projects (
 			id, user_id, series_id, topic, target_duration_seconds,
-			graphics_preset_id, status, plan_version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			graphics_preset_id, status, plan_version,
+			tone, aspect_ratio, voice_id, cta,
+			music_mood, sample_image_url, language
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING created_at, updated_at
 	`
 
@@ -23,6 +25,8 @@ func (db *DB) CreateProject(ctx context.Context, project *models.Project) error 
 		project.ID, project.UserID, project.SeriesID, project.Topic,
 		project.TargetDurationSeconds, project.GraphicsPresetID,
 		project.Status, project.PlanVersion,
+		project.Tone, project.AspectRatio, project.VoiceID,
+		project.CTA, project.MusicMood, project.SampleImageURL, project.Language,
 	).Scan(&project.CreatedAt, &project.UpdatedAt)
 }
 
@@ -31,6 +35,8 @@ func (db *DB) GetProject(ctx context.Context, id uuid.UUID) (*models.Project, er
 		SELECT
 			id, user_id, series_id, topic, target_duration_seconds,
 			graphics_preset_id, status, plan_version, final_video_asset_id,
+			tone, aspect_ratio, voice_id, cta,
+			music_mood, sample_image_url, language,
 			error_code, error_message, created_at, updated_at
 		FROM projects
 		WHERE id = $1
@@ -41,6 +47,8 @@ func (db *DB) GetProject(ctx context.Context, id uuid.UUID) (*models.Project, er
 		&project.ID, &project.UserID, &project.SeriesID, &project.Topic,
 		&project.TargetDurationSeconds, &project.GraphicsPresetID,
 		&project.Status, &project.PlanVersion, &project.FinalVideoAssetID,
+		&project.Tone, &project.AspectRatio, &project.VoiceID,
+		&project.CTA, &project.MusicMood, &project.SampleImageURL, &project.Language,
 		&project.ErrorCode, &project.ErrorMessage,
 		&project.CreatedAt, &project.UpdatedAt,
 	)
@@ -67,6 +75,8 @@ func (db *DB) ListProjects(ctx context.Context, status string, limit, offset int
 		SELECT
 			id, user_id, series_id, topic, target_duration_seconds,
 			graphics_preset_id, status, plan_version, final_video_asset_id,
+			tone, aspect_ratio, voice_id, cta,
+			music_mood, sample_image_url, language,
 			error_code, error_message, created_at, updated_at
 		FROM projects
 	`
@@ -91,6 +101,8 @@ func (db *DB) ListProjects(ctx context.Context, status string, limit, offset int
 			&p.ID, &p.UserID, &p.SeriesID, &p.Topic,
 			&p.TargetDurationSeconds, &p.GraphicsPresetID,
 			&p.Status, &p.PlanVersion, &p.FinalVideoAssetID,
+			&p.Tone, &p.AspectRatio, &p.VoiceID,
+			&p.CTA, &p.MusicMood, &p.SampleImageURL, &p.Language,
 			&p.ErrorCode, &p.ErrorMessage,
 			&p.CreatedAt, &p.UpdatedAt,
 		); err != nil {
@@ -141,15 +153,15 @@ func (db *DB) SetProjectFinalVideo(ctx context.Context, projectID, assetID uuid.
 
 func (db *DB) GetGraphicsPreset(ctx context.Context, id uuid.UUID) (*models.GraphicsPreset, error) {
 	query := `
-		SELECT id, name, style_json, prompt_addition, created_at, updated_at
+		SELECT id, slug, name, description, style_json, prompt_addition, created_at, updated_at
 		FROM graphics_presets
 		WHERE id = $1
 	`
 
 	preset := &models.GraphicsPreset{}
 	err := db.QueryRowContext(ctx, query, id).Scan(
-		&preset.ID, &preset.Name, &preset.StyleJSON,
-		&preset.PromptAddition, &preset.CreatedAt, &preset.UpdatedAt,
+		&preset.ID, &preset.Slug, &preset.Name, &preset.Description,
+		&preset.StyleJSON, &preset.PromptAddition, &preset.CreatedAt, &preset.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -162,18 +174,49 @@ func (db *DB) GetGraphicsPreset(ctx context.Context, id uuid.UUID) (*models.Grap
 	return preset, nil
 }
 
-func (db *DB) GetDefaultGraphicsPreset(ctx context.Context) (*models.GraphicsPreset, error) {
+// GetGraphicsPresetBySlug retrieves a visual style preset by its slug (e.g. "cinematic_watercolor").
+func (db *DB) GetGraphicsPresetBySlug(ctx context.Context, slug string) (*models.GraphicsPreset, error) {
 	query := `
-		SELECT id, name, style_json, prompt_addition, created_at, updated_at
+		SELECT id, slug, name, description, style_json, prompt_addition, created_at, updated_at
+		FROM graphics_presets
+		WHERE slug = $1
+	`
+
+	preset := &models.GraphicsPreset{}
+	err := db.QueryRowContext(ctx, query, slug).Scan(
+		&preset.ID, &preset.Slug, &preset.Name, &preset.Description,
+		&preset.StyleJSON, &preset.PromptAddition, &preset.CreatedAt, &preset.UpdatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("graphics preset not found: %s", slug)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get graphics preset by slug: %w", err)
+	}
+
+	return preset, nil
+}
+
+func (db *DB) GetDefaultGraphicsPreset(ctx context.Context) (*models.GraphicsPreset, error) {
+	// Default preset: "Hyper Realistic". Falls back to the oldest preset if not found.
+	preset, err := db.GetGraphicsPresetBySlug(ctx, "hyper_realistic")
+	if err == nil {
+		return preset, nil
+	}
+
+	// Fallback: oldest preset in the table
+	query := `
+		SELECT id, slug, name, description, style_json, prompt_addition, created_at, updated_at
 		FROM graphics_presets
 		ORDER BY created_at
 		LIMIT 1
 	`
 
-	preset := &models.GraphicsPreset{}
-	err := db.QueryRowContext(ctx, query).Scan(
-		&preset.ID, &preset.Name, &preset.StyleJSON,
-		&preset.PromptAddition, &preset.CreatedAt, &preset.UpdatedAt,
+	preset = &models.GraphicsPreset{}
+	err = db.QueryRowContext(ctx, query).Scan(
+		&preset.ID, &preset.Slug, &preset.Name, &preset.Description,
+		&preset.StyleJSON, &preset.PromptAddition, &preset.CreatedAt, &preset.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -184,4 +227,34 @@ func (db *DB) GetDefaultGraphicsPreset(ctx context.Context) (*models.GraphicsPre
 	}
 
 	return preset, nil
+}
+
+// ListGraphicsPresets returns all visual style presets ordered by name.
+func (db *DB) ListGraphicsPresets(ctx context.Context) ([]models.GraphicsPreset, error) {
+	query := `
+		SELECT id, slug, name, description, style_json, prompt_addition, created_at, updated_at
+		FROM graphics_presets
+		WHERE slug IS NOT NULL
+		ORDER BY name
+	`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list graphics presets: %w", err)
+	}
+	defer rows.Close()
+
+	var presets []models.GraphicsPreset
+	for rows.Next() {
+		var p models.GraphicsPreset
+		if err := rows.Scan(
+			&p.ID, &p.Slug, &p.Name, &p.Description,
+			&p.StyleJSON, &p.PromptAddition, &p.CreatedAt, &p.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan graphics preset: %w", err)
+		}
+		presets = append(presets, p)
+	}
+
+	return presets, nil
 }

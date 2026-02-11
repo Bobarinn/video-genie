@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/bobarin/faceless/internal/db"
-	"github.com/bobarin/faceless/internal/models"
-	"github.com/bobarin/faceless/internal/queue"
-	"github.com/bobarin/faceless/internal/storage"
+	"github.com/bobarin/episod/internal/db"
+	"github.com/bobarin/episod/internal/models"
+	"github.com/bobarin/episod/internal/queue"
+	"github.com/bobarin/episod/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -43,7 +43,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set defaults
-	targetDuration := 105
+	targetDuration := 60
 	if req.TargetDurationSeconds != nil {
 		targetDuration = *req.TargetDurationSeconds
 	}
@@ -62,6 +62,11 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		presetID = preset.ID
 	}
 
+	// Apply customization defaults for optional fields
+	tone := strPtrDefault(req.Tone, "documentary")
+	aspectRatio := strPtrDefault(req.AspectRatio, "9:16")
+	language := strPtrDefault(req.Language, "en")
+
 	// Create project
 	project := &models.Project{
 		ID:                    uuid.New(),
@@ -71,6 +76,13 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		GraphicsPresetID:      &presetID,
 		Status:                models.ProjectStatusQueued,
 		PlanVersion:           1,
+		Tone:                  tone,
+		AspectRatio:           aspectRatio,
+		VoiceID:               req.VoiceID,       // nil = use global default from env
+		CTA:                   req.CTA,            // nil = no call-to-action
+		MusicMood:             req.MusicMood,       // nil = use default music
+		SampleImageURL:        req.SampleImageURL,  // nil = use default sample.jpeg
+		Language:              language,
 	}
 
 	if err := h.db.CreateProject(r.Context(), project); err != nil {
@@ -163,6 +175,8 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 			ID:                    project.ID,
 			Topic:                 project.Topic,
 			TargetDurationSeconds: project.TargetDurationSeconds,
+			Tone:                  project.Tone,
+			Language:              project.Language,
 			Status:                project.Status,
 			ErrorCode:             project.ErrorCode,
 			ErrorMessage:          project.ErrorMessage,
@@ -365,6 +379,44 @@ func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+// ListTonePresets handles GET /v1/presets/tones
+// Returns all available tone presets for project creation.
+func (h *Handler) ListTonePresets(w http.ResponseWriter, r *http.Request) {
+	presets, err := h.db.ListTonePresets(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list tone presets")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"presets": presets,
+		"count":   len(presets),
+	})
+}
+
+// ListVisualStylePresets handles GET /v1/presets/visual-styles
+// Returns all available visual style (graphics) presets for project creation.
+func (h *Handler) ListVisualStylePresets(w http.ResponseWriter, r *http.Request) {
+	presets, err := h.db.ListGraphicsPresets(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list visual style presets")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"presets": presets,
+		"count":   len(presets),
+	})
+}
+
+// strPtrDefault returns a *string with the given default if the input is nil or empty.
+func strPtrDefault(s *string, defaultVal string) *string {
+	if s == nil || *s == "" {
+		return &defaultVal
+	}
+	return s
 }
 
 // Health check

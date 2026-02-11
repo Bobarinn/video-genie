@@ -1,4 +1,4 @@
-# Faceless Video Generator - Project Summary
+# Episod - Project Summary
 
 ## What Was Built
 
@@ -32,7 +32,7 @@ A complete, production-ready **Go backend** for generating AI-powered faceless s
 ## Project Structure
 
 ```
-faceless/
+episod/
 ├── cmd/api/                    # Main entry point
 ├── internal/
 │   ├── api/                    # HTTP handlers and routing
@@ -332,4 +332,4 @@ Built with:
 - Redis
 - PostgreSQL
 
-**Ready to generate faceless videos at scale!** 🚀
+**Ready to generate videos at scale!** 🚀

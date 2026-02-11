@@ -1,4 +1,4 @@
-## Backend PRD — Faceless Video Generator (V1) with Series-ready foundation
+## Backend PRD — Episod (V1) with Series-ready foundation
 
 ### 1) Goal
 

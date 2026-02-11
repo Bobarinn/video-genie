@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# Test script for Faceless Video Generator API
+# Test script for Episod API
 
 set -e
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 
-echo "Testing Faceless Video Generator API at $BASE_URL"
+echo "Testing Episod API at $BASE_URL"
 echo "================================================"
 
 # Test 1: Health check

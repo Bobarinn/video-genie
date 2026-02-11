@@ -1,10 +1,10 @@
 # Development Guide
 
-This guide provides detailed information for developers working on the Faceless Video Generator backend.
+This guide provides detailed information for developers working on the Episod backend.
 
 ## Project Overview
 
-The Faceless Video Generator is a modular Go backend that orchestrates AI services to create short-form videos from text topics. The system is designed for reliability, debuggability, and future extensibility.
+The Episod is a modular Go backend that orchestrates AI services to create short-form videos from text topics. The system is designed for reliability, debuggability, and future extensibility.
 
 ## Architecture Principles
 
@@ -343,7 +343,7 @@ make docker-logs
 
 **FFmpeg fails**
 - Ensure FFmpeg installed: `which ffmpeg`
-- Check temp directory permissions: `ls -la /tmp/faceless`
+- Check temp directory permissions: `ls -la /tmp/episod`
 - Verify input files exist
 
 **Supabase upload fails**
@@ -430,8 +430,8 @@ CGO_ENABLED=0 GOOS=linux go build -o api cmd/api/main.go
 ### Docker Deployment
 
 ```bash
-docker build -t faceless-api .
-docker push your-registry/faceless-api
+docker build -t episod-api .
+docker push your-registry/episod-api
 ```
 
 ### Environment Variables

@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/bobarin/episod/internal/models"
 )
 
 // ---------------------------------------------------------------------------
@@ -20,12 +22,14 @@ import (
 const (
 	xaiBaseURL           = "https://api.x.ai/v1"
 	xaiVideoModel        = "grok-imagine-video"
-	xaiInitialDelay      = 20 * time.Second // Wait before first poll (videos take 30-40s)
-	xaiPollInterval      = 15 * time.Second // Poll every 15s after initial delay
-	xaiMaxPollDuration   = 6 * time.Minute  // xAI docs say max ~6 min during peak
+	xaiInitialDelay      = 15 * time.Second // Wait before first poll (videos typically take 30-40s)
+	xaiPollMinInterval   = 5 * time.Second  // Start polling every 5s
+	xaiPollMaxInterval   = 20 * time.Second // Cap at 20s between polls
+	xaiPollBackoffFactor = 1.5              // Multiply interval by 1.5 each attempt
+	xaiMaxPollDuration   = 5 * time.Minute  // Hard timeout per clip
 	xaiMinDuration       = 1                // xAI minimum video duration
 	xaiMaxDuration       = 15               // xAI maximum video duration
-	xaiDefaultDuration   = 8                // seconds (1-15 allowed)
+	xaiDefaultDuration   = 12               // seconds (1-15 allowed)
 	xaiDefaultAspect     = "9:16"           // portrait for mobile
 	xaiDefaultResolution = "720p"           // 720p or 480p supported
 )
@@ -93,23 +97,35 @@ type xaiVideoOutput struct {
 	RespectModeration bool   `json:"respect_moderation"`
 }
 
+// VideoGenOptions holds per-project overrides for xAI video generation.
+type VideoGenOptions struct {
+	Preset      *models.GraphicsPreset // Visual style preset (name, description, style_json, prompt_addition)
+	AspectRatio *string                // "9:16", "16:9", "1:1"
+}
+
 // buildXAIVideoPrompt enhances the raw video_prompt with xAI-specific instructions
-// for style consistency and realistic, minimal motion.
-func buildXAIVideoPrompt(rawPrompt string) string {
+// and the full graphics preset style details.
+func buildXAIVideoPrompt(rawPrompt string, opts *VideoGenOptions) string {
+	// Build visual style section from the graphics preset
+	var styleSection string
+	if opts != nil && opts.Preset != nil {
+		styleSection = fmt.Sprintf("Visual style: \"%s\".", opts.Preset.Name)
+		if opts.Preset.Description != nil && *opts.Preset.Description != "" {
+			styleSection += " " + *opts.Preset.Description
+		}
+		if opts.Preset.PromptAddition != nil && *opts.Preset.PromptAddition != "" {
+			styleSection += " " + *opts.Preset.PromptAddition
+		}
+	} else {
+		styleSection = "Match the style and mood of the input image."
+	}
+
 	return fmt.Sprintf(`%s
 
-Visual style direction: Match the hyperrealistic painting style of the input image exactly. Maintain the warm golden radiance, luminous cinematic atmosphere, and photorealistic subject detail from the source frame. The video should look like the painting has subtly come to life.
+%s
+Maintain visual consistency with the input image throughout the video. Preserve the color palette, lighting, and artistic quality from the source frame.
 
-Motion direction: Generate subtle, natural, realistic movement. Less is more — favor gentle, grounded motion over dramatic or exaggerated movement. Examples of good motion:
-- Gentle breeze moving hair or fabric folds
-- Subtle chest breathing or a slow blink
-- Soft ambient particles (dust motes, light flicker, gentle smoke)
-- Slow, barely perceptible camera drift or push-in
-- Leaves rustling, water rippling, clouds drifting slowly
-
-Avoid: sudden jerky movements, unrealistic morphing, style changes between frames, cartoonish motion, or overly dramatic camera swoops. The movement should feel like a living photograph — cinematic, calm, and grounded in reality.
-
-No generated audio or dialogue. Silent video only.`, rawPrompt)
+Generate natural, cinematic movement that brings the scene to life. Silent video only — no generated audio or dialogue.`, rawPrompt, styleSection)
 }
 
 // GenerateVideo generates a video using xAI Grok Imagine Video.
@@ -121,10 +137,11 @@ No generated audio or dialogue. Silent video only.`, rawPrompt)
 //   - prompt: describes the motion/action for the video (the clip's video_prompt)
 //   - imageURL: publicly accessible URL of the source image (empty = text-only generation)
 //   - durationSec: desired video duration in seconds (clamped to xAI's 1-15s range, 0 = use default 8s)
+//   - opts: per-project overrides for visual style and aspect ratio (nil = use defaults)
 //
 // Returns the raw video bytes (MP4) or an error.
-func (s *XAIVideoService) GenerateVideo(ctx context.Context, prompt string, imageURL string, durationSec int) ([]byte, error) {
-	enhancedPrompt := buildXAIVideoPrompt(prompt)
+func (s *XAIVideoService) GenerateVideo(ctx context.Context, prompt string, imageURL string, durationSec int, opts *VideoGenOptions) ([]byte, error) {
+	enhancedPrompt := buildXAIVideoPrompt(prompt, opts)
 
 	// Clamp duration to xAI's allowed range
 	if durationSec <= 0 {
@@ -137,12 +154,18 @@ func (s *XAIVideoService) GenerateVideo(ctx context.Context, prompt string, imag
 		durationSec = xaiMaxDuration
 	}
 
+	// Resolve aspect ratio — per-project override or default
+	aspectRatio := xaiDefaultAspect
+	if opts != nil && opts.AspectRatio != nil && *opts.AspectRatio != "" {
+		aspectRatio = *opts.AspectRatio
+	}
+
 	// Step 1: Submit generation request
 	reqBody := xaiGenerationRequest{
 		Prompt:      enhancedPrompt,
 		Model:       xaiVideoModel,
 		Duration:    durationSec,
-		AspectRatio: xaiDefaultAspect,
+		AspectRatio: aspectRatio,
 		Resolution:  xaiDefaultResolution,
 	}
 
@@ -150,8 +173,8 @@ func (s *XAIVideoService) GenerateVideo(ctx context.Context, prompt string, imag
 		reqBody.Image = &xaiImageInput{URL: imageURL}
 	}
 
-	log.Printf("[xAI Video] Starting video generation (promptLen=%d, enhancedLen=%d, hasImage=%v, duration=%ds)",
-		len(prompt), len(enhancedPrompt), imageURL != "", durationSec)
+	log.Printf("[xAI Video] Starting video generation (promptLen=%d, enhancedLen=%d, hasImage=%v, duration=%ds, aspect=%s)",
+		len(prompt), len(enhancedPrompt), imageURL != "", durationSec, aspectRatio)
 
 	requestID, err := s.submitGeneration(ctx, reqBody)
 	if err != nil {
@@ -227,8 +250,9 @@ func (s *XAIVideoService) submitGeneration(ctx context.Context, reqBody xaiGener
 
 // pollForResult polls GET /v1/videos/{request_id} until the video is ready or an error occurs.
 //
-// Polling strategy: wait 20s before the first poll (videos typically take 30-40s),
-// then poll every 15s to reduce unnecessary API calls.
+// Polling strategy: exponential backoff starting at 5s, scaling by 1.5x up to a 20s cap.
+// An initial delay of 15s avoids wasting API calls on guaranteed "pending" responses.
+// Hard timeout: 5 minutes per clip.
 //
 // Detection logic: xAI returns two different response shapes:
 //   - Pending: {"status":"pending"} — status field is "pending"
@@ -237,9 +261,10 @@ func (s *XAIVideoService) submitGeneration(ctx context.Context, reqBody xaiGener
 func (s *XAIVideoService) pollForResult(ctx context.Context, requestID string) (*xaiVideoResult, error) {
 	deadline := time.Now().Add(xaiMaxPollDuration)
 	pollCount := 0
+	currentInterval := xaiPollMinInterval
 
 	// Wait before the first poll — xAI video generation typically takes 30-40s,
-	// so polling at 10s intervals wastes API calls on guaranteed "pending" responses.
+	// so the first 15s are guaranteed to be "pending".
 	log.Printf("[xAI Video] Waiting %v before first poll (videos typically take 30-40s)...", xaiInitialDelay)
 	select {
 	case <-ctx.Done():
@@ -266,7 +291,7 @@ func (s *XAIVideoService) pollForResult(ctx context.Context, requestID string) (
 			return result, nil
 		}
 
-		log.Printf("[xAI Video] Poll %d: status=%s", pollCount, result.Status)
+		log.Printf("[xAI Video] Poll %d: status=%s (next poll in %v)", pollCount, result.Status, currentInterval)
 
 		switch result.Status {
 		case "failed":
@@ -277,12 +302,19 @@ func (s *XAIVideoService) pollForResult(ctx context.Context, requestID string) (
 			return nil, fmt.Errorf("video generation failed: %s (request_id=%s)", errMsg, requestID)
 
 		default:
-			// Still pending — wait before next poll
+			// Still pending — wait with exponential backoff before next poll
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("video generation cancelled: %w", ctx.Err())
-			case <-time.After(xaiPollInterval):
+			case <-time.After(currentInterval):
 			}
+
+			// Increase interval: 5s → 7.5s → 11.25s → 16.8s → 20s (capped)
+			next := time.Duration(float64(currentInterval) * xaiPollBackoffFactor)
+			if next > xaiPollMaxInterval {
+				next = xaiPollMaxInterval
+			}
+			currentInterval = next
 		}
 	}
 }

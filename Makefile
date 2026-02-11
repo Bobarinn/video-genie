@@ -23,12 +23,21 @@ test: ## Run tests
 
 clean: ## Clean build artifacts
 	rm -rf bin/
-	rm -rf /tmp/faceless/
+	rm -rf /tmp/episod/
 
-migrate: ## Run database migrations
+migrate: ## Run database migrations (one-by-one, for incremental updates)
 	@echo "Applying migrations..."
-	psql $(DATABASE_URL) -f migrations/001_initial_schema.sql
-	psql $(DATABASE_URL) -f migrations/002_add_clip_durations.sql
+	psql "$(DATABASE_URL)" -f migrations/001_initial_schema.sql
+	psql "$(DATABASE_URL)" -f migrations/002_add_clip_durations.sql
+	psql "$(DATABASE_URL)" -f migrations/003_add_project_customization.sql
+	psql "$(DATABASE_URL)" -f migrations/004_enable_rls.sql
+	psql "$(DATABASE_URL)" -f migrations/005_create_users_table.sql
+	psql "$(DATABASE_URL)" -f migrations/006_seed_presets.sql
+
+migrate-fresh: ## Run the combined idempotent schema (safe for fresh DB or re-runs)
+	@echo "Applying full idempotent schema to Supabase..."
+	psql "$(DATABASE_URL)" -f migrations/supabase_full_schema.sql
+	@echo "Done! Schema is up to date."
 
 docker-up: ## Start all services with Docker Compose
 	$(DOCKER_COMPOSE) up -d

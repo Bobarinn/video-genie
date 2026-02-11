@@ -9,17 +9,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bobarin/faceless/internal/api"
-	"github.com/bobarin/faceless/internal/config"
-	"github.com/bobarin/faceless/internal/db"
-	"github.com/bobarin/faceless/internal/queue"
-	"github.com/bobarin/faceless/internal/services"
-	"github.com/bobarin/faceless/internal/storage"
-	"github.com/bobarin/faceless/internal/worker"
+	"github.com/bobarin/episod/internal/api"
+	"github.com/bobarin/episod/internal/config"
+	"github.com/bobarin/episod/internal/db"
+	"github.com/bobarin/episod/internal/queue"
+	"github.com/bobarin/episod/internal/services"
+	"github.com/bobarin/episod/internal/storage"
+	"github.com/bobarin/episod/internal/worker"
 )
 
 func main() {
-	log.Println("Starting Faceless Video Generator API...")
+	log.Println("Starting Episod API...")
 
 	// Load configuration
 	cfg, err := config.Load()
@@ -74,8 +74,8 @@ func main() {
 
 		// Initialize services
 		openaiSvc := services.NewOpenAIService(cfg.OpenAIKey)
-		geminiSvc := services.NewGeminiServiceWithStyleReference(cfg.GeminiKey, cfg.GeminiStyleReferenceImage)
-		ffmpegSvc := services.NewFFmpegService("/tmp/faceless")
+		geminiSvc := services.NewGeminiService(cfg.GeminiKey)
+		ffmpegSvc := services.NewFFmpegService("/tmp/episod", services.ParseResolution(cfg.RenderResolution))
 
 		// Initialize TTS provider — ElevenLabs preferred, Cartesia as legacy fallback
 		var ttsSvc services.TTSService

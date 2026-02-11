@@ -1,7 +1,7 @@
-# Nginx configuration for Faceless Video Generator
+# Nginx configuration for Episod API
 # Replace YOUR_DOMAIN with your actual domain name
 
-upstream faceless_api {
+upstream episod_api {
     server 127.0.0.1:8080;
 }
 
@@ -54,7 +54,7 @@ server {
 
     # Proxy settings
     location / {
-        proxy_pass http://faceless_api;
+        proxy_pass http://episod_api;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -66,6 +66,6 @@ server {
     }
 
     # Logging
-    access_log /var/log/nginx/faceless_access.log;
-    error_log /var/log/nginx/faceless_error.log;
+    access_log /var/log/nginx/episod_access.log;
+    error_log /var/log/nginx/episod_error.log;
 }

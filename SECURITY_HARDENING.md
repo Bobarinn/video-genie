@@ -1,6 +1,6 @@
 # Security Hardening Guide
 
-This guide will help you secure your video-genie deployment on your Hetzner server.
+This guide will help you secure your episod deployment on your Hetzner server.
 
 ## ⚠️ Current Security Issues to Fix
 
@@ -40,7 +40,7 @@ docker compose -f docker-compose.prod.yml ps
 ### Step 2: Pull Latest Secure Configuration
 
 ```bash
-cd ~/apps/video-genie
+cd ~/apps/episod
 git pull origin main
 ```
 
@@ -123,7 +123,7 @@ curl http://YOUR_SERVER_IP:8080/health
 
 Edit your `.env`:
 ```bash
-nano ~/apps/video-genie/.env
+nano ~/apps/episod/.env
 ```
 
 Add:
@@ -151,7 +151,7 @@ REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
 sudo apt update && sudo apt upgrade -y
 
 # Update Docker images periodically
-cd ~/apps/video-genie
+cd ~/apps/episod
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -182,7 +182,7 @@ cat > ~/backup-database.sh << 'EOF'
 BACKUP_DIR=~/backups
 mkdir -p $BACKUP_DIR
 DATE=$(date +%Y%m%d_%H%M%S)
-cd ~/apps/video-genie
+cd ~/apps/episod
 docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U postgres faceless | gzip > $BACKUP_DIR/backup_$DATE.sql.gz
 # Keep only last 7 backups
 ls -t $BACKUP_DIR/backup_*.sql.gz | tail -n +8 | xargs -r rm

@@ -1,6 +1,6 @@
 # API Examples
 
-Complete examples of API requests and responses for the Faceless Video Generator.
+Complete examples of API requests and responses for the Episod.
 
 ## Base URL
 
@@ -147,7 +147,7 @@ curl http://localhost:8080/v1/projects/$PROJECT_ID
       "error_message": null,
       "created_at": "2024-01-15T10:30:30Z",
       "updated_at": "2024-01-15T10:30:45Z",
-      "audio_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/a1b2c3d4.../clip_0_audio.mp3",
+      "audio_url": "https://your-project.supabase.co/storage/v1/object/public/files/a1b2c3d4.../clip_0_audio.mp3",
       "image_url": null,
       "clip_video_url": null
     },
@@ -198,7 +198,7 @@ curl http://localhost:8080/v1/projects/$PROJECT_ID
       "clip_video_url": "https://.../clip_1.mp4"
     }
   ],
-  "final_video_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/a1b2c3d4.../final.mp4"
+  "final_video_url": "https://your-project.supabase.co/storage/v1/object/public/files/a1b2c3d4.../final.mp4"
 }
 ```
 
@@ -233,7 +233,7 @@ The `-L` flag follows the redirect to the signed URL.
 
 Headers:
 ```
-Location: https://your-project.supabase.co/storage/v1/object/sign/faceless-videos/a1b2c3d4.../final.mp4?token=...
+Location: https://your-project.supabase.co/storage/v1/object/sign/files/a1b2c3d4.../final.mp4?token=...
 ```
 
 ### Error Response (404 Not Found)
@@ -340,9 +340,9 @@ curl http://localhost:8080/v1/projects/$PROJECT_ID/clips/$CLIP_ID
   "error_message": null,
   "created_at": "2024-01-15T10:30:30Z",
   "updated_at": "2024-01-15T10:31:15Z",
-  "audio_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/a1b2c3d4.../clip_0_audio.mp3",
-  "image_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/a1b2c3d4.../clip_0_image.png",
-  "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/faceless-videos/a1b2c3d4.../clip_0.mp4"
+  "audio_url": "https://your-project.supabase.co/storage/v1/object/public/files/a1b2c3d4.../clip_0_audio.mp3",
+  "image_url": "https://your-project.supabase.co/storage/v1/object/public/files/a1b2c3d4.../clip_0_image.png",
+  "clip_video_url": "https://your-project.supabase.co/storage/v1/object/public/files/a1b2c3d4.../clip_0.mp4"
 }
 ```
 

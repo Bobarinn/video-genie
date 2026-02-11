@@ -78,7 +78,14 @@ type elevenLabsVoiceSettings struct {
 
 // GenerateSpeech converts text to speech using ElevenLabs.
 // Implements the TTSService interface.
-func (s *ElevenLabsService) GenerateSpeech(ctx context.Context, text, voiceStyle string) (*TTSResponse, error) {
+// voiceID overrides the service-level default when non-empty.
+func (s *ElevenLabsService) GenerateSpeech(ctx context.Context, text, voiceStyle, voiceID string) (*TTSResponse, error) {
+	// Use per-request voice override if provided, otherwise fall back to service default
+	effectiveVoice := s.voiceID
+	if voiceID != "" {
+		effectiveVoice = voiceID
+	}
+
 	// Build request body
 	speed := 0.85 // Slightly slower for clear narration delivery
 	reqBody := elevenLabsRequest{
@@ -100,7 +107,7 @@ func (s *ElevenLabsService) GenerateSpeech(ctx context.Context, text, voiceStyle
 
 	// Build URL: POST /v1/text-to-speech/{voice_id}?output_format=mp3_44100_128
 	url := fmt.Sprintf("%s/v1/text-to-speech/%s?output_format=%s",
-		elevenLabsBaseURL, s.voiceID, elevenLabsOutputFormat)
+		elevenLabsBaseURL, effectiveVoice, elevenLabsOutputFormat)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
@@ -111,7 +118,7 @@ func (s *ElevenLabsService) GenerateSpeech(ctx context.Context, text, voiceStyle
 	req.Header.Set("xi-api-key", s.apiKey)
 
 	log.Printf("[ElevenLabs] Generating speech (voiceID=%s, model=%s, textLen=%d, speed=%.2f)",
-		s.voiceID, s.modelID, len(text), speed)
+		effectiveVoice, s.modelID, len(text), speed)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

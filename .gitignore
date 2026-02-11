@@ -54,3 +54,5 @@ plan*.json
 
 # Claude artifacts
 .claude/
+
+.local.md

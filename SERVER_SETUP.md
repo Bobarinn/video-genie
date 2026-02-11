@@ -1,21 +1,21 @@
-# Server Setup Guide for video-genie
+# Server Setup Guide for episod
 
-This guide is specifically for your Hetzner server setup at `~/apps/video-genie` with a sudo user.
+This guide is specifically for your Hetzner server setup at `~/apps/episod` with a sudo user.
 
 ## Current Status
 
-- ✅ Repository cloned at: `~/apps/video-genie`
+- ✅ Repository cloned at: `~/apps/episod`
 - ✅ Git installed
 - ✅ Docker installed
 - ✅ FFmpeg installed
-- 📦 Repository URL: `https://github.com/Bobarinn/video-genie`
+- 📦 Repository URL: `https://github.com/Bobarinn/episod`
 
 ## Step 1: Pull Latest Changes
 
 You've cloned an older commit. Let's get the latest deployment files:
 
 ```bash
-cd ~/apps/video-genie
+cd ~/apps/episod
 git pull origin main
 ```
 
@@ -31,7 +31,7 @@ You should see all three files listed.
 Create your `.env` file with all your API keys and configuration:
 
 ```bash
-cd ~/apps/video-genie
+cd ~/apps/episod
 nano .env
 ```
 
@@ -60,7 +60,7 @@ REDIS_URL=redis://redis:6379
 # Supabase Configuration
 SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 SUPABASE_SERVICE_KEY=YOUR_SUPABASE_SERVICE_KEY_HERE
-SUPABASE_STORAGE_BUCKET=faceless-videos
+SUPABASE_STORAGE_BUCKET=files
 
 # OpenAI (for video planning)
 OPENAI_API_KEY=sk-YOUR_OPENAI_KEY_HERE
@@ -108,7 +108,7 @@ chmod 600 .env
 Run the deployment script:
 
 ```bash
-cd ~/apps/video-genie
+cd ~/apps/episod
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -140,9 +140,9 @@ docker compose -f docker-compose.prod.yml ps
 ```
 
 You should see:
-- `faceless-db` (postgres) - Up
-- `faceless-redis` (redis) - Up
-- `faceless-api` (api) - Up
+- `episod-db` (postgres) - Up
+- `episod-redis` (redis) - Up
+- `episod-api` (api) - Up
 
 View logs to ensure no errors:
 ```bash
@@ -176,7 +176,7 @@ First, let's set up a temporary HTTP configuration to get the SSL certificate:
 # Replace YOUR_DOMAIN with your actual domain in the command below
 export DOMAIN="yourdomain.com"
 
-sudo tee /etc/nginx/sites-available/video-genie << EOF
+sudo tee /etc/nginx/sites-available/episod << EOF
 server {
     listen 80;
     listen [::]:80;
@@ -209,8 +209,8 @@ EOF
 # Remove default site
 sudo rm -f /etc/nginx/sites-enabled/default
 
-# Enable video-genie site
-sudo ln -sf /etc/nginx/sites-available/video-genie /etc/nginx/sites-enabled/
+# Enable episod site
+sudo ln -sf /etc/nginx/sites-available/episod /etc/nginx/sites-enabled/
 
 # Test configuration
 sudo nginx -t
@@ -245,8 +245,8 @@ Now let's apply the full production configuration:
 
 ```bash
 # Update the template with your domain
-cd ~/apps/video-genie
-sed "s/YOUR_DOMAIN/yourdomain.com/g" nginx.conf.template | sudo tee /etc/nginx/sites-available/video-genie
+cd ~/apps/episod
+sed "s/YOUR_DOMAIN/yourdomain.com/g" nginx.conf.template | sudo tee /etc/nginx/sites-available/episod
 
 # Test configuration
 sudo nginx -t
@@ -326,7 +326,7 @@ docker stats
 
 ### Update Deployment (After Code Changes)
 ```bash
-cd ~/apps/video-genie
+cd ~/apps/episod
 git pull origin main
 docker compose -f docker-compose.prod.yml up -d --build
 ```
@@ -342,8 +342,8 @@ gunzip < ~/backup_20240101.sql.gz | docker compose -f docker-compose.prod.yml ex
 
 ### View Nginx Logs
 ```bash
-sudo tail -f /var/log/nginx/faceless_access.log
-sudo tail -f /var/log/nginx/faceless_error.log
+sudo tail -f /var/log/nginx/episod_access.log
+sudo tail -f /var/log/nginx/episod_error.log
 ```
 
 ## Troubleshooting

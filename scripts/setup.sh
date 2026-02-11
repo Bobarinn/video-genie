@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Setup script for Faceless Video Generator
+# Setup script for Episod
 
 set -e
 
-echo "Faceless Video Generator - Setup Script"
-echo "========================================"
+echo "Episod - Setup Script"
+echo "====================="
 
 # Check prerequisites
 echo -e "\nChecking prerequisites..."
@@ -59,7 +59,7 @@ echo "✓ Dependencies installed"
 
 # Create temp directory
 echo -e "\nCreating temp directory..."
-mkdir -p /tmp/faceless
+mkdir -p /tmp/episod
 echo "✓ Temp directory created"
 
 # Check if running with Docker

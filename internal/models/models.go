@@ -70,8 +70,20 @@ func (j *JSONB) Scan(value interface{}) error {
 }
 
 // Models
+
+type User struct {
+	ID          uuid.UUID  `json:"id"`
+	Email       string     `json:"email"`
+	DisplayName *string    `json:"display_name,omitempty"`
+	AvatarURL   *string    `json:"avatar_url,omitempty"`
+	Plan        *string    `json:"plan,omitempty"` // "free", "pro", "enterprise"
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
 type Series struct {
 	ID                      uuid.UUID  `json:"id"`
+	UserID                  *uuid.UUID `json:"user_id,omitempty"` // nil = system/global series
 	Name                    string     `json:"name"`
 	Description             *string    `json:"description,omitempty"`
 	Guidance                *string    `json:"guidance,omitempty"`
@@ -84,11 +96,22 @@ type Series struct {
 
 type GraphicsPreset struct {
 	ID             uuid.UUID `json:"id"`
-	Name           string    `json:"name"`
+	Slug           *string   `json:"slug,omitempty"`            // Machine name, e.g. "cinematic_watercolor"
+	Name           string    `json:"name"`                      // Display name
+	Description    *string   `json:"description,omitempty"`     // Full AI prompt directive
 	StyleJSON      JSONB     `json:"style_json"`
-	PromptAddition *string   `json:"prompt_addition,omitempty"`
+	PromptAddition *string   `json:"prompt_addition,omitempty"` // Short suffix for image prompt
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type TonePreset struct {
+	ID          uuid.UUID `json:"id"`
+	Slug        string    `json:"slug"`         // Machine name, e.g. "documentary"
+	DisplayName string    `json:"display_name"` // Human-readable, e.g. "Documentary"
+	Description string    `json:"description"`  // Full AI prompt directive
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type Project struct {
@@ -101,6 +124,14 @@ type Project struct {
 	Status                 ProjectStatus  `json:"status"`
 	PlanVersion            int            `json:"plan_version"`
 	FinalVideoAssetID      *uuid.UUID     `json:"final_video_asset_id,omitempty"`
+	// Per-project customization (all optional, defaults applied at creation)
+	Tone                   *string        `json:"tone,omitempty"`             // "documentary", "dramatic", "educational", etc.
+	AspectRatio            *string        `json:"aspect_ratio,omitempty"`     // "9:16", "16:9", "1:1", "4:5"
+	VoiceID                *string        `json:"voice_id,omitempty"`         // ElevenLabs voice override
+	CTA                    *string        `json:"cta,omitempty"`              // Call-to-action for last clip
+	MusicMood              *string        `json:"music_mood,omitempty"`       // "calm", "epic", "upbeat", etc.
+	SampleImageURL         *string        `json:"sample_image_url,omitempty"` // Custom style reference image URL
+	Language               *string        `json:"language,omitempty"`         // ISO 639-1: "en", "es", "fr", etc.
 	ErrorCode              *string        `json:"error_code,omitempty"`
 	ErrorMessage           *string        `json:"error_message,omitempty"`
 	CreatedAt              time.Time      `json:"created_at"`
@@ -174,6 +205,8 @@ type ProjectSummary struct {
 	ID                    uuid.UUID      `json:"id"`
 	Topic                 string         `json:"topic"`
 	TargetDurationSeconds int            `json:"target_duration_seconds"`
+	Tone                  *string        `json:"tone,omitempty"`
+	Language              *string        `json:"language,omitempty"`
 	Status                ProjectStatus  `json:"status"`
 	ThumbnailURL          *string        `json:"thumbnail_url,omitempty"`
 	FinalVideoURL         *string        `json:"final_video_url,omitempty"`
@@ -193,9 +226,16 @@ type ListProjectsResponse struct {
 
 type CreateProjectRequest struct {
 	Topic                 string     `json:"topic"`
-	TargetDurationSeconds *int       `json:"target_duration_seconds,omitempty"`
+	TargetDurationSeconds *int       `json:"target_duration_seconds,omitempty"` // Default: 60
 	GraphicsPresetID      *uuid.UUID `json:"graphics_preset_id,omitempty"`
 	SeriesID              *uuid.UUID `json:"series_id,omitempty"`
+	Tone                  *string    `json:"tone,omitempty"`             // Default: "documentary"
+	AspectRatio           *string    `json:"aspect_ratio,omitempty"`     // Default: "9:16"
+	VoiceID               *string    `json:"voice_id,omitempty"`         // Default: env ELEVENLABS_VOICE_ID
+	CTA                   *string    `json:"cta,omitempty"`              // Optional call-to-action
+	MusicMood             *string    `json:"music_mood,omitempty"`       // Optional music mood hint
+	SampleImageURL        *string    `json:"sample_image_url,omitempty"` // Optional custom style reference
+	Language              *string    `json:"language,omitempty"`         // Default: "en"
 }
 
 type CreateProjectResponse struct {

@@ -1,4 +1,4 @@
-module github.com/bobarin/faceless
+module github.com/bobarin/episod
 
 go 1.24
 

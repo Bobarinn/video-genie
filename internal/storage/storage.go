@@ -54,6 +54,19 @@ func New(url, serviceKey, bucket string) *Storage {
 	}
 }
 
+// setAuthHeaders sets the correct authentication headers for Supabase API requests.
+//
+// Supports both key formats:
+//   - Legacy JWT keys (service_role): sent as Authorization: Bearer <jwt>
+//   - New secret keys (sb_secret_...): sent via the apikey header
+//
+// For backwards compatibility, both headers are always set so the code works
+// regardless of which key format is configured.
+func (s *Storage) setAuthHeaders(req *http.Request) {
+	req.Header.Set("apikey", s.serviceKey)
+	req.Header.Set("Authorization", "Bearer "+s.serviceKey)
+}
+
 // Upload uploads a file to Supabase Storage with retries and exponential backoff.
 // Uses PUT with Content-Length and x-upsert for reliable large file uploads.
 func (s *Storage) Upload(ctx context.Context, path string, data []byte, contentType string) error {
@@ -81,7 +94,7 @@ func (s *Storage) Upload(ctx context.Context, path string, data []byte, contentT
 			return fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+s.serviceKey)
+		s.setAuthHeaders(req)
 		req.Header.Set("Content-Type", contentType)
 		req.Header.Set("Content-Length", fmt.Sprintf("%d", len(data)))
 		req.Header.Set("x-upsert", "true")
@@ -157,7 +170,7 @@ func (s *Storage) Download(ctx context.Context, path string) ([]byte, error) {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+s.serviceKey)
+		s.setAuthHeaders(req)
 
 		resp, err := s.client.Do(req)
 		if err != nil {
@@ -214,7 +227,7 @@ func (s *Storage) GetSignedURL(ctx context.Context, path string, expiresIn int) 
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.serviceKey)
+	s.setAuthHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.client.Do(req)
@@ -238,9 +251,22 @@ func (s *Storage) GetSignedURL(ctx context.Context, path string, expiresIn int) 
 	return s.url + result.SignedURL, nil
 }
 
-// GenerateStoragePath creates a storage path for an asset
+// GenerateStoragePath creates a storage path for an asset.
+//
+// All project files live under: projects/{project_id}/{filename}
+//
+// This keeps the shared "files" bucket organized:
+//
+//	files/
+//	  projects/
+//	    {project_id}/
+//	      plan.json
+//	      clip_0_image.png
+//	      clip_0_audio.mp3
+//	      clip_{uuid}.mp4
+//	      final.mp4
 func (s *Storage) GenerateStoragePath(projectID uuid.UUID, filename string) string {
-	return filepath.Join(projectID.String(), filename)
+	return filepath.Join("projects", projectID.String(), filename)
 }
 
 // retryDelay calculates exponential backoff with jitter: base * 2^attempt + random jitter

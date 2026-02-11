@@ -1,6 +1,6 @@
 # Project File Structure
 
-Complete overview of all files in the Faceless Video Generator project.
+Complete overview of all files in the Episod project.
 
 ## Documentation Files (📚)
 
@@ -299,7 +299,7 @@ These files can be edited to customize behavior:
 These paths are created during execution:
 
 ```
-/tmp/faceless/          # FFmpeg temporary files
+/tmp/episod/          # FFmpeg temporary files
 tmp/                    # Air build artifacts (dev mode)
 bin/                    # Compiled binary (make build)
 ```
